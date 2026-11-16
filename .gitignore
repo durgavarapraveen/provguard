@@ -24,3 +24,6 @@ coverage.*
 
 # Local recordings that were not reviewed for secrets
 testdata/**/raw/
+
+# Personal launch drafts (blog, posts, disclosure); not published
+drafts/
