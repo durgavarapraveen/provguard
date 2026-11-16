@@ -190,7 +190,16 @@ func save(home string, s *Session) error {
 	if err := os.WriteFile(tmp, b, 0o600); err != nil {
 		return err
 	}
-	if err := os.Rename(tmp, p); err != nil {
+	// Windows refuses to rename over a file that another hook process is
+	// reading (unlocked Get). Retry briefly instead of losing the update
+	// (review finding, verified: "Access is denied").
+	for i := 0; i < 50; i++ {
+		if err = os.Rename(tmp, p); err == nil || !errors.Is(err, os.ErrPermission) {
+			break
+		}
+		time.Sleep(time.Duration(i+1) * time.Millisecond)
+	}
+	if err != nil {
 		os.Remove(tmp)
 		return err
 	}

@@ -81,6 +81,10 @@ func psPipeline(a *Analysis, stages [][]psTok, depth int) {
 	fetch := false
 	for i, st := range stages {
 		name := psStatement(a, st, depth)
+		// "Get-ChildItem X -Recurse | Remove-Item" deletes a whole tree.
+		if name == "remove-item" && i > 0 && psHasRecurse(stages[i-1]) && !a.Has(Destroy) {
+			a.sink(Destroy, "remove_item_recurse", psFirstPositional(stages[i-1]))
+		}
 		if name == "invoke-expression" && i > 0 {
 			if fetch {
 				a.sink(ExecRemote, "pipe_to_iex", "")
@@ -122,6 +126,17 @@ func psStatement(a *Analysis, toks []psTok, depth int) string {
 		words, callOp = words[1:], true
 	}
 	first := words[0]
+	// "$x = <pipeline>" runs the pipeline. Review finding (CRIT): assignments
+	// were skipped as expressions, so `$null = Set-Content …` and
+	// `$r = iwr … -InFile .env` were never checked.
+	if !callOp {
+		if rhs, ok := psAssignmentRHS(words); ok {
+			if len(rhs) == 0 {
+				return ""
+			}
+			return psStatement(a, rhs, depth)
+		}
+	}
 	// Without & or ., PowerShell never runs a computed name: a statement that
 	// starts with $x, "…", (…), @(…) or [type] is an expression. Their insides
 	// were already analyzed by the tokenizer. (Found live: @(…) and
@@ -154,10 +169,8 @@ func psStatement(a *Analysis, toks []psTok, depth int) string {
 
 	params, posArgs := psParams(words[1:])
 	get := func(names ...string) (string, bool) {
-		for _, n := range names {
-			if v, ok := params[n]; ok {
-				return v.s, v.dyn
-			}
+		if v, ok := psLookup(params, names...); ok {
+			return v.s, v.dyn
 		}
 		return "", false
 	}
@@ -200,7 +213,13 @@ func psStatement(a *Analysis, toks []psTok, depth int) string {
 		a.Cmds = append(a.Cmds, Cmd{Name: name, Args: args})
 		fp, d := pathArg("-filepath")
 		al, ad := get("-argumentlist")
-		sub := append([]string{fp}, strings.Fields(al)...)
+		// -ArgumentList 'uninstall','--yes' arrives as one token "uninstall,--yes".
+		sub := []string{fp}
+		for _, x := range strings.FieldsFunc(al, func(r rune) bool { return r == ',' || r == ' ' || r == '\t' }) {
+			if x = strings.Trim(x, `'"`); x != "" {
+				sub = append(sub, x)
+			}
+		}
 		subd := make([]bool, len(sub))
 		subd[0] = d
 		for i := 1; i < len(subd); i++ {
@@ -219,20 +238,37 @@ func psStatement(a *Analysis, toks []psTok, depth int) string {
 		for _, t := range targets {
 			a.write(t.s, "delete", t.dyn)
 		}
-		if _, ok := params["-recurse"]; ok {
+		if _, ok := psLookup(params, "-recurse"); ok {
 			a.sink(Destroy, "remove_item_recurse", joinToks(targets))
 		}
 	case "set-content", "add-content", "out-file", "new-item", "tee-object", "export-csv", "export-clixml", "set-acl":
 		a.Cmds = append(a.Cmds, Cmd{Name: name, Args: args})
 		p, d := pathArg("-path", "-filepath", "-literalpath")
-		if p == "" {
-			p, d = get("-name")
+		if n, nd := get("-name"); n != "" {
+			if p != "" && p != n {
+				p, d = joinPath(p, n), d || nd // New-Item -Path DIR -Name FILE
+			} else {
+				p, d = n, nd
+			}
 		}
 		op := "write"
 		if name == "add-content" || hasParam(params, "-append") {
 			op = "append"
 		}
 		a.write(p, op, d)
+		if name == "new-item" {
+			if t, _ := get("-itemtype", "-type"); strings.Contains(strings.ToLower(t), "link") || strings.EqualFold(t, "junction") {
+				tgt, td := get("-target", "-value")
+				a.write(tgt, "link", td) // a write through the link reaches the target
+			}
+		}
+	case "expand-archive":
+		a.Cmds = append(a.Cmds, Cmd{Name: name, Args: args})
+		dst, _ := get("-destinationpath")
+		if dst == "" && len(posArgs) > 1 {
+			dst = posArgs[1].s
+		}
+		bulkWrite(a, name, dst)
 	case "copy-item", "move-item", "rename-item":
 		a.Cmds = append(a.Cmds, Cmd{Name: name, Args: args})
 		src, sd := pathArg("-path", "-literalpath")
@@ -262,6 +298,26 @@ func psStatement(a *Analysis, toks []psTok, depth int) string {
 
 func hasParam(p map[string]psTok, n string) bool { _, ok := p[n]; return ok }
 
+func psHasRecurse(toks []psTok) bool {
+	for _, t := range toks {
+		if n := strings.ToLower(t.s); !t.quote && len(n) >= 2 && strings.HasPrefix("-recurse", n) {
+			return true
+		}
+	}
+	return false
+}
+
+func psFirstPositional(toks []psTok) string {
+	if len(toks) < 2 {
+		return ""
+	}
+	_, pos := psParams(toks[1:])
+	if len(pos) > 0 {
+		return pos[0].s
+	}
+	return ""
+}
+
 func joinToks(ts []psTok) string {
 	var s []string
 	for _, t := range ts {
@@ -278,20 +334,85 @@ var psKeywords = set("if", "elseif", "else", "foreach", "for", "while", "do", "u
 var psSwitches = set("-recurse", "-force", "-append", "-nonewline", "-passthru", "-usebasicparsing",
 	"-whatif", "-confirm", "-noprofile", "-noninteractive", "-erroraction", "-verbose", "-raw")
 
+var paramName = regexp.MustCompile(`^-[A-Za-z][A-Za-z0-9]*:`)
+
+// psAssignmentRHS returns the tokens after "=" in "$x = …", "$x += …",
+// "[type]$x = …" or "$x=…" (no spaces).
+func psAssignmentRHS(words []psTok) ([]psTok, bool) {
+	first := words[0]
+	if first.quote || !(strings.HasPrefix(first.s, "$") || strings.HasPrefix(first.s, "[")) {
+		return nil, false
+	}
+	if len(words) > 1 && !words[1].quote {
+		switch words[1].s {
+		case "=", "+=", "-=", "*=", "/=", "%=", "??=":
+			return words[2:], true
+		}
+	}
+	if i := strings.Index(first.s, "="); i > 0 && strings.HasPrefix(first.s, "$") {
+		rest := first.s[i+1:]
+		out := append([]psTok{}, words[1:]...)
+		if rest != "" {
+			out = append([]psTok{{s: rest, dyn: strings.Contains(rest, "$")}}, out...)
+		}
+		return out, true
+	}
+	return nil, false
+}
+
+// psLookup finds a parameter by full name or by an unambiguous abbreviation
+// (PowerShell accepts -Pa for -Path, -Dest for -Destination). Review
+// finding: abbreviations hid write targets.
+func psLookup(params map[string]psTok, names ...string) (psTok, bool) {
+	for _, n := range names {
+		if v, ok := params[n]; ok {
+			return v, true
+		}
+	}
+	for k, v := range params {
+		for _, n := range names {
+			if len(k) >= 3 && strings.HasPrefix(n, k) {
+				return v, true
+			}
+			if n == "-recurse" && (k == "-r" || k == "-re") {
+				return v, true
+			}
+		}
+	}
+	return psTok{}, false
+}
+
+// psIsSwitch: a known switch, or an abbreviation of one (-fo for -Force).
+func psIsSwitch(n string) bool {
+	if psSwitches[n] {
+		return true
+	}
+	if len(n) < 2 {
+		return false
+	}
+	for s := range psSwitches {
+		if strings.HasPrefix(s, n) {
+			return true
+		}
+	}
+	return false
+}
+
 // psParams splits "-Name value" pairs from positional arguments.
 func psParams(ts []psTok) (map[string]psTok, []psTok) {
 	params := map[string]psTok{}
 	var pos []psTok
 	for i := 0; i < len(ts); i++ {
 		t := ts[i]
+		// -Name:value binds even when the value was quoted (-Path:'x').
+		if m := paramName.FindString(t.s); m != "" {
+			k := strings.ToLower(strings.TrimSuffix(m, ":"))
+			params[k] = psTok{s: t.s[len(m):], dyn: t.dyn}
+			continue
+		}
 		if !t.quote && strings.HasPrefix(t.s, "-") && len(t.s) > 1 {
 			n := strings.ToLower(t.s)
-			if k, v, ok := strings.Cut(n, ":"); ok {
-				params[k] = psTok{s: t.s[len(k)+1:], dyn: t.dyn}
-				_ = v
-				continue
-			}
-			if psSwitches[n] || i+1 >= len(ts) || (!ts[i+1].quote && strings.HasPrefix(ts[i+1].s, "-")) {
+			if psIsSwitch(n) || i+1 >= len(ts) || (!ts[i+1].quote && strings.HasPrefix(ts[i+1].s, "-")) {
 				params[n] = psTok{}
 				continue
 			}
@@ -307,7 +428,7 @@ func psParams(ts []psTok) (map[string]psTok, []psTok) {
 func psAll(params map[string]psTok, pos []psTok, names ...string) []psTok {
 	var out []psTok
 	for _, n := range names {
-		if v, ok := params[n]; ok && v.s != "" {
+		if v, ok := psLookup(params, n); ok && v.s != "" {
 			for _, part := range strings.Split(v.s, ",") {
 				out = append(out, psTok{s: strings.Trim(strings.TrimSpace(part), `'"`), dyn: v.dyn})
 			}

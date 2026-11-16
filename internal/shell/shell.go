@@ -8,6 +8,7 @@ package shell
 
 import (
 	"path"
+	"regexp"
 	"strings"
 )
 
@@ -143,16 +144,48 @@ func (a *Analysis) write(p, op string, dynamic bool) {
 	if p == "" || isNullDevice(p) {
 		return
 	}
+	// classify() only sees resolved strings, so detect run-time parts from
+	// the text: substitutions, variables, globs (review: cp/mv targets lost
+	// their dynamic flag).
+	dynamic = dynamic || strings.ContainsAny(p, "$*?[`") || strings.Contains(p, "<(")
 	a.Writes = append(a.Writes, Write{Path: p, Op: op, Dynamic: dynamic})
 }
 
-// finish adds PERSIST sinks for writes to persistence locations.
+// finish adds PERSIST sinks for writes to persistence locations, and OPAQUE
+// sinks for writes whose target is computed at run time.
 func (a *Analysis) finish() {
 	for _, w := range a.Writes {
 		if where := PersistPath(w.Path); where != "" {
 			a.sink(Persist, "path:"+where, w.Path)
 		}
+		if w.Dynamic && (w.Op == "write" || w.Op == "append" || w.Op == "link") && unknownTarget(w.Path) {
+			// Review finding: a path built at run time ("$(printf …)") can
+			// name any file, including protected ones.
+			a.sink(Opaque, "dynamic_write", w.Path)
+		}
 	}
+}
+
+var (
+	varRef = regexp.MustCompile(`\$\{?([A-Za-z_][A-Za-z0-9_]*(?::[A-Za-z_][A-Za-z0-9_]*)?)`)
+	// knownDirVars are folder variables that do not let a path point anywhere.
+	knownDirVars = set("home", "userprofile", "temp", "tmp", "tmpdir", "appdata", "localappdata",
+		"pwd", "oldpwd", "programdata", "xdg_cache_home", "xdg_config_home", "xdg_data_home", "runner_temp")
+)
+
+// unknownTarget reports whether a dynamic write path can resolve to an
+// arbitrary location: command substitution, glob, or an unknown variable.
+func unknownTarget(p string) bool {
+	if strings.Contains(p, "$(") || strings.Contains(p, "<(") || strings.Contains(p, "$?") || strings.ContainsAny(p, "*?[`") {
+		return true
+	}
+	for _, m := range varRef.FindAllStringSubmatch(p, -1) {
+		name := strings.ToLower(strings.TrimPrefix(strings.ToLower(m[1]), "env:"))
+		if !knownDirVars[name] {
+			return true
+		}
+	}
+	return false
 }
 
 func isNullDevice(p string) bool {

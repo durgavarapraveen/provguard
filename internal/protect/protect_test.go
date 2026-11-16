@@ -119,7 +119,8 @@ func TestWriteAndEditSettings(t *testing.T) {
 		{"edit model", pre("Edit", map[string]any{"file_path": p, "old_string": `"model":"x"`, "new_string": `"model":"y"`}), false},
 		{"edit removes hook", pre("Edit", map[string]any{"file_path": p, "old_string": `"provguard hook PreToolUse"`, "new_string": `"true"`}), true},
 		{"edit adds disable", pre("Edit", map[string]any{"file_path": p, "old_string": `"model":"x"`, "new_string": `"model":"x","disableAllHooks":true`}), true},
-		{"edit no match", pre("Edit", map[string]any{"file_path": p, "old_string": "nope", "new_string": "x"}), false},
+		// Review: an Edit provguard cannot verify is denied on settings files.
+		{"edit no match", pre("Edit", map[string]any{"file_path": p, "old_string": "nope", "new_string": "x"}), true},
 		{"windows path case", pre("Write", map[string]any{"file_path": filepath.Join(dir, "SETTINGS.LOCAL.JSON"), "content": `{"disableAllHooks":true}`}), true},
 		{"new project settings w/o hooks", pre("Write", map[string]any{"file_path": filepath.Join(dir, "settings.local.json"), "content": `{"permissions":{}}`}), false},
 		{"other json file", pre("Write", map[string]any{"file_path": filepath.Join(dir, "other.json"), "content": `{"disableAllHooks":true}`}), false},

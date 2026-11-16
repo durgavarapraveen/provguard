@@ -43,6 +43,29 @@ func TestConcurrentUpdatesKeepEveryWrite(t *testing.T) {
 	}
 }
 
+// Review (HIGH, Windows): a reader holding the session file open made the
+// writer's rename fail with "Access is denied", losing the update.
+func TestUpdateWhileReaderHoldsFile(t *testing.T) {
+	home := t.TempDir()
+	if err := Update(home, "s", func(s *Session) error { return nil }); err != nil {
+		t.Fatal(err)
+	}
+	f, err := os.Open(path(home, "s"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	go func() { time.Sleep(15 * time.Millisecond); f.Close() }()
+	if err := Update(home, "s", func(s *Session) error {
+		s.MarkTainted(Source{Tool: "WebFetch", Reason: "x"})
+		return nil
+	}); err != nil {
+		t.Fatalf("update lost while a reader held the file: %v", err)
+	}
+	if s, _ := Get(home, "s"); !s.Tainted {
+		t.Fatal("taint not saved")
+	}
+}
+
 func TestTaintIsSticky(t *testing.T) {
 	home := t.TempDir()
 	_ = Update(home, "s", func(s *Session) error {
