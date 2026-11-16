@@ -105,14 +105,32 @@ func safeHosts(sinks []shell.Sink, untrustedValues []string) []string {
 	return out
 }
 
+//
+// Review finding: values without a scheme ("evil.com/drop") and subdomains
+// of an untrusted host were missed. A host now counts as untrusted when it
+// appears in a value at all, or shares its last two labels with the host of
+// one (a.evil.org and evil.org; for co.uk-style names this is stricter than
+// needed, which only hides the hint).
 func fromUntrusted(host string, values []string) bool {
 	for _, v := range values {
 		v = strings.ToLower(v)
-		if v == host || strings.Contains(v, "//"+host) || strings.Contains(v, "."+host) || strings.Contains(v, "@"+host) {
+		if strings.Contains(v, host) {
+			return true
+		}
+		if vh := targetHost(v); vh != "" && siteOf(vh) == siteOf(host) {
 			return true
 		}
 	}
 	return false
+}
+
+// siteOf returns the last two labels of a host name.
+func siteOf(h string) string {
+	p := strings.Split(strings.TrimSuffix(h, "."), ".")
+	if len(p) < 2 {
+		return h
+	}
+	return p[len(p)-2] + "." + p[len(p)-1]
 }
 
 // Message is the text shown in Claude Code for a decision. token is the

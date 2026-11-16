@@ -35,15 +35,35 @@ func TestTempDeleteIsNotRisky(t *testing.T) {
 		"rm -rf " + dir + " ~/Documents": Ask,
 		"rm -rf ~/Documents":             Ask,
 	} {
-		if got := judge(cmd, sess(true, false), bal()).Decision; got != want {
+		if got := judge(cmd, sess(false, false), bal()).Decision; got != want {
 			t.Errorf("%s: got %q, want %q", cmd, got, want)
 		}
 	}
 	// $env:TEMP pointed elsewhere first.
 	cmd := `$env:TEMP = $HOME; Remove-Item -Recurse -Force $env:TEMP\Documents`
 	a := shell.Analyze(cmd, shell.PowerShell)
-	r := Evaluate(Input{Tool: "PowerShell", Sinks: a.Sinks, Text: cmd, Session: sess(true, false), Config: bal(), Cwd: "/work/proj"})
+	r := Evaluate(Input{Tool: "PowerShell", Sinks: a.Sinks, Text: cmd, Session: sess(false, false), Config: bal(), Cwd: "/work/proj"})
 	if r.Decision != Ask {
 		t.Errorf("redefined TEMP: got %q, want ask (%v)", r.Decision, a.Sinks)
+	}
+}
+
+// Review findings 6 and 7: a link in %TEMP% can point to the home folder,
+// and TEMP can be set other ways. In an untrusted session every recursive
+// delete asks; in a clean one, TEMP set in any way loses the exemption.
+func TestTempExemptionLimits(t *testing.T) {
+	dir := filepath.ToSlash(filepath.Join(os.TempDir(), "h"))
+	if got := judge("ln -s ~ "+dir+"; rm -rf "+dir+"/Documents", sess(true, false), bal()).Decision; got != Ask {
+		t.Errorf("tainted temp delete: got %q, want ask", got)
+	}
+	for _, cmd := range []string{
+		`${env:TEMP} = $HOME; Remove-Item -Recurse -Force $env:TEMP\Documents`,
+		`Set-Item Env:TEMP $HOME; Remove-Item -Recurse -Force $env:TEMP\Documents`,
+	} {
+		a := shell.Analyze(cmd, shell.PowerShell)
+		r := Evaluate(Input{Tool: "PowerShell", Sinks: a.Sinks, Text: cmd, Session: sess(false, false), Config: bal(), Cwd: "/work/proj"})
+		if r.Decision != Ask {
+			t.Errorf("%s: got %q, want ask", cmd, r.Decision)
+		}
 	}
 }

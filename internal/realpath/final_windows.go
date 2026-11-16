@@ -1,6 +1,6 @@
 //go:build windows
 
-package protect
+package realpath
 
 import (
 	"strings"
@@ -10,10 +10,10 @@ import (
 
 var procGetFinalPathNameByHandleW = syscall.NewLazyDLL("kernel32.dll").NewProc("GetFinalPathNameByHandleW")
 
-// finalPath resolves junctions, symlinks, 8.3 short names and trailing dots
+// Final resolves junctions, symlinks, 8.3 short names and trailing dots
 // of an existing path. Go's filepath.EvalSymlinks does not follow junctions,
 // which any user can create with "mklink /J".
-func finalPath(p string) (string, error) {
+func Final(p string) (string, error) {
 	name, err := syscall.UTF16PtrFromString(p)
 	if err != nil {
 		return "", err

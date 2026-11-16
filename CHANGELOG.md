@@ -23,8 +23,18 @@
 - `gh … --help` and `git … --help` run nothing and are not counted as deletes or pushes.
 - `sed -i -e 'script' file`: the script is no longer read as a file name.
 - `& "$env:USERPROFILE\…\tool.exe"` and `"$HOME/bin/tool"` name a known program instead of an unknown command; checks by program name, self-protection included, apply to it.
-- Recursive deletes inside the system temp folder do not ask.
-- Fake tokens in test files do not mark a session sensitive (finding F16).
+- Recursive deletes inside the system temp folder do not ask, in a session that has not read untrusted content.
+- Fake tokens in test files do not mark a session sensitive (finding F16); they are still fingerprinted, so sending one out is still stopped.
+
+### Fixed (independent review of the changes above)
+- gh writes counted as "your own repository" too often: an issue or pull request given as a link (`gh issue comment https://github.com/attacker/x/issues/1`), `-R` inside an option group (`-dR`) or given twice, a `cd`, `gh repo set-default`, `git remote`/`config` or an environment change earlier in the same command, `GH_REPO` built from pieces, and publishing actions (`release create`, `repo edit --visibility public`, `issue transfer`) or file input (`--body-file`, `$(cat …)`). Now every listed repository must be yours, the folder is resolved for the whole command line, and those actions get no exemption. `gh pr create` is checked for secrets in the commits it pushes.
+- `echo mode audit | xargs provguard config` (and `find -exec`, `parallel`) changed settings; quoted subcommands inside scripts were missed.
+- `bash -eo pipefail x.sh` skipped the script scan.
+- The "always allow this host" hint could name the attacker's host (no scheme, or a subdomain).
+- A link inside `testdata/` to a real secret file counted as a fixture; paths are now resolved through the OS, junctions included (shared `internal/realpath`).
+- `git submodule foreach`, `git bisect run`, `git rebase --exec`, `git filter-branch` and `git -c alias.…` run commands; they are now code provguard cannot read.
+- `provguard review` printed control characters from logged commands to the terminal.
+- Install scripts: exact checksum-line match, Apple Silicon under Rosetta, containers without a terminal, and `install.ps1` no longer changes settings in the user's PowerShell window.
 
 ### Fixed (security audit, Nov 2026)
 - Self-protection: code provguard cannot read (`python -c`, `eval`, a script file) could run `provguard allow <token>` and grant the agent's own blocked call. Script files are now streamed whole in overlapping windows, instead of one capped read of the start, and the pattern covers globbed spellings of `.provguard` and `.claude/settings*.json`.

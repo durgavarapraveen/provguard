@@ -41,3 +41,24 @@ func TestKnownProgramPathStillProtected(t *testing.T) {
 		mustDeny(t, cmd, Check(preIn(tool, t.TempDir(), map[string]any{"command": cmd}), "/home/u/.provguard", nil))
 	}
 }
+
+// Review findings 8 and 9: settings changed through an argument feeder, or
+// from a script that quotes the setting.
+func TestConfigChangeBypasses(t *testing.T) {
+	dir := t.TempDir()
+	home := filepath.Join(dir, "home", ".provguard")
+	os.WriteFile(filepath.Join(dir, "a.sh"), []byte("provguard config 'mode' audit\n"), 0o700)
+	os.WriteFile(filepath.Join(dir, "b.sh"), []byte(`provguard "allow" 0123456789`+"\n"), 0o700)
+	for _, cmd := range []string{
+		"echo mode audit | xargs provguard config",
+		`find . -name x -exec provguard config {} \;`,
+		"parallel provguard config ::: mode",
+		"sh a.sh",
+		"sh b.sh",
+	} {
+		mustDeny(t, cmd, Check(preIn("Bash", dir, map[string]any{"command": cmd}), home, nil))
+	}
+	if v := Check(preIn("Bash", dir, map[string]any{"command": "provguard config"}), home, nil); v.Deny {
+		t.Errorf("reading the settings denied: %s", v.Reason)
+	}
+}

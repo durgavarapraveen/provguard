@@ -6,11 +6,13 @@ import (
 	"encoding/json"
 	"net/url"
 	"path"
+	"path/filepath"
 	"regexp"
 	"strings"
 
 	"github.com/durgavarapraveen/provguard/internal/config"
 	"github.com/durgavarapraveen/provguard/internal/event"
+	"github.com/durgavarapraveen/provguard/internal/realpath"
 	"github.com/durgavarapraveen/provguard/internal/redact"
 	"github.com/durgavarapraveen/provguard/internal/shell"
 )
@@ -151,10 +153,11 @@ func Post(e event.Event, env Env) Result {
 	// Secrets: all patterns for known-sensitive content, strong patterns elsewhere.
 	// Test fixtures hold fake tokens on purpose (finding F16), so a token
 	// found while reading or editing one file of tests does not count.
-	if r.Sensitive || !testFixture(e) {
-		r.Secrets = redact.Find(text, r.Sensitive)
-	}
-	if !r.Sensitive && len(r.Secrets) > 0 {
+	// The tokens are still fingerprinted, so a real token committed to a
+	// test file cannot be sent out unnoticed (rule 1); only the session
+	// label is skipped.
+	r.Secrets = redact.Find(text, r.Sensitive)
+	if !r.Sensitive && len(r.Secrets) > 0 && !testFixture(e) {
 		r.sensitive("secret_in_output:" + r.Secrets[0].Kind)
 	}
 	if r.Untrusted {
@@ -179,6 +182,22 @@ func testFixture(e event.Event) bool {
 	if p == "" || SensitivePath(p) {
 		return false
 	}
+	// Judge the file the OS opens, not the name. Review finding: a link
+	// testdata/c → ~/.aws/credentials passed as a fixture. A file that does
+	// not exist yet (Write) is judged by its name.
+	if !filepath.IsAbs(p) && e.Cwd != "" {
+		p = filepath.Join(e.Cwd, p)
+	}
+	if real, err := realpath.Final(p); err == nil {
+		if SensitivePath(real) || !fixturePath(real) {
+			return false
+		}
+	}
+	return fixturePath(p)
+}
+
+// fixturePath: the path names a test file or a file under a test-data folder.
+func fixturePath(p string) bool {
 	n := norm(p)
 	base := path.Base(n)
 	for _, dir := range strings.Split(path.Dir(n), "/") {

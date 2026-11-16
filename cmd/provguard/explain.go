@@ -194,10 +194,20 @@ func yesNo(b bool) string {
 	return "no"
 }
 
+//
+// Logged commands are written by the agent, so control characters are
+// replaced: an escape sequence could otherwise change the user's terminal
+// (review finding). It cuts at a character boundary, not inside one.
 func oneLine(s string, max int) string {
+	s = strings.Map(func(r rune) rune {
+		if r < 0x20 || r >= 0x7f && r <= 0x9f {
+			return ' '
+		}
+		return r
+	}, s)
 	s = strings.Join(strings.Fields(s), " ")
-	if len(s) > max {
-		return s[:max] + "…"
+	if r := []rune(s); len(r) > max {
+		return string(r[:max]) + "…"
 	}
 	return s
 }

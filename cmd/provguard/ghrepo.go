@@ -3,7 +3,10 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"os"
 	"os/exec"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -46,17 +49,15 @@ func ghRepoView(dir string) (repoInfo, error) {
 // ghRepoTrusted builds policy.Input.GHRepoTrusted: whether a gh write goes
 // to a repository the user owns. Every doubt answers "no", because a "yes"
 // lets data leave a 🔴 session:
-//   - GH_REPO or GH_HOST in the command can point gh anywhere;
+//   - GH_* settings and changes to the folder in the same command are
+//     handled by the analyzer and the policy (shell.scopeGHTargets);
 //   - "OWNER/REPO" (from -R) must have a trusted owner on github.com;
 //   - the current folder's repository needs every remote, and every
 //     `gh repo set-default` choice, owned by a trusted owner, and GitHub
 //     must confirm the owner and that it is not a fork of someone else's
 //     repository (in a fork, gh can send a pull request to the parent).
-func ghRepoTrusted(cfg config.Config, cwd, command string, view func(dir string) (repoInfo, error)) func(string) bool {
+func ghRepoTrusted(cfg config.Config, cwd string, view func(dir string) (repoInfo, error)) func(string) bool {
 	if len(cfg.TrustedRepoOwners) == 0 {
-		return nil
-	}
-	if up := strings.ToUpper(command); strings.Contains(up, "GH_REPO") || strings.Contains(up, "GH_HOST") {
 		return nil
 	}
 	cache := map[string]bool{}
@@ -64,15 +65,37 @@ func ghRepoTrusted(cfg config.Config, cwd, command string, view func(dir string)
 		if v, ok := cache[repo]; ok {
 			return v
 		}
-		v := repo != "?"
-		if v && repo == "." {
+		var v bool
+		switch {
+		case repo == "?":
+		case repo == ".":
 			v = currentRepoTrusted(cfg, cwd, view)
-		} else if v {
+		case strings.HasPrefix(repo, "@"):
+			v = currentRepoTrusted(cfg, resolveDir(repo[1:], cwd), view)
+		default:
 			v = cfg.RepoOwnerTrusted(ghRepoOwner(repo))
 		}
 		cache[repo] = v
 		return v
 	}
+}
+
+// resolveDir makes a cd target absolute: ~ is the home folder, a relative
+// path is relative to cwd.
+func resolveDir(dir, cwd string) string {
+	if rest, ok := strings.CutPrefix(dir, "~"); ok {
+		if h, err := os.UserHomeDir(); err == nil && (rest == "" || rest[0] == '/' || rest[0] == '\\') {
+			return filepath.Join(h, rest)
+		}
+		return ""
+	}
+	if filepath.IsAbs(dir) || len(dir) > 1 && dir[1] == ':' {
+		return dir
+	}
+	if len(dir) > 2 && dir[0] == '/' && dir[2] == '/' && runtime.GOOS == "windows" { // Git Bash /c/…
+		return dir[1:2] + ":" + dir[2:]
+	}
+	return filepath.Join(cwd, dir)
 }
 
 // ghRepoOwner returns the owner in "OWNER/REPO", "github.com/OWNER/REPO" or
@@ -92,6 +115,9 @@ func ghRepoOwner(repo string) string {
 }
 
 func currentRepoTrusted(cfg config.Config, cwd string, view func(string) (repoInfo, error)) bool {
+	if cwd == "" {
+		return false
+	}
 	root := label.RepoRoot(cwd + "/x")
 	if root == "" {
 		return false
