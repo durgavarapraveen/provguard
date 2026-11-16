@@ -1,0 +1,8 @@
+{
+  "session_id": "abc123",
+  "transcript_path": "C:\\Users\\dev\\.claude\\projects\\p\\abc123.jsonl",
+  "cwd": "C:\\Users\\dev\\proj",
+  "permission_mode": "default",
+  "hook_event_name": "SessionStart",
+  "source": "startup"
+}

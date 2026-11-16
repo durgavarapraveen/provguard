@@ -1,0 +1,26 @@
+# Build output
+/bin/
+/dist/
+*.exe
+*.test
+*.out
+coverage.*
+
+# Local agent and editor state
+.claude/settings.local.json
+.idea/
+.vscode/
+
+# Secrets and env
+.env
+.env.*
+!.env.example
+
+# Local project memory (not published)
+.agent/
+
+# CI is local-only for now. Delete this line when you add CI.
+.github/
+
+# Local recordings that were not reviewed for secrets
+testdata/**/raw/
