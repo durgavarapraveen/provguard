@@ -121,30 +121,30 @@ func handle(e event.Event, stdout io.Writer, rec *audit.Record) {
 		if r.Would != policy.None {
 			rec.Rule, rec.Reason = r.Rule, r.Reason
 		}
-		if r.Decision != policy.None {
-			// The user can approve this exact call once (provguard allow).
-			if key == nil {
-				key, _ = fingerprint.LoadOrCreate(home)
+		if r.Decision == policy.None {
+			return
+		}
+		// The user can let this exact call through once (provguard allow).
+		// Only a deny gets a token: an ask is already the user's choice.
+		token := ""
+		if key == nil {
+			key, _ = fingerprint.LoadOrCreate(home)
+		}
+		if key != nil {
+			tok := allowonce.Token(key, e.SessionID, e.ToolName, text)
+			if allowonce.Consume(home, tok, time.Now()) {
+				rec.Override = "allow_once:" + tok
+				return
 			}
-			if key != nil {
-				tok := allowonce.Token(key, e.SessionID, e.ToolName, text)
-				if allowonce.Consume(home, tok, time.Now()) {
-					rec.Override = "allow_once:" + tok
-					return
-				}
-				if allowonce.Record(home, tok, allowonce.Pending{
-					Session: e.SessionID, Tool: e.ToolName, Command: text, Rule: r.Rule, Time: time.Now(),
-				}) == nil {
-					r.Reason += allowonce.Hint(tok)
-				}
+			if r.Decision == policy.Deny && allowonce.Record(home, tok, allowonce.Pending{
+				Session: e.SessionID, Tool: e.ToolName, Command: text, Rule: r.Rule, Time: time.Now(),
+			}) == nil {
+				token = tok
 			}
 		}
-		switch r.Decision {
-		case policy.Deny:
-			respond(stdout, rec, claudecode.Deny, r.Rule, r.Reason)
-		case policy.Ask:
-			respond(stdout, rec, claudecode.Ask, r.Rule, r.Reason)
-		}
+		d := map[string]claudecode.Decision{policy.Deny: claudecode.Deny, policy.Ask: claudecode.Ask}[r.Decision]
+		respond(stdout, rec, d, r.Rule, policy.Message(r, r.Decision, token))
+		rec.Reason = r.Reason // the log keeps the technical reason
 	case event.PostTool, event.UserPrompt:
 		if err := applyLabels(home, cfg, e, rec); err != nil {
 			rec.Error = err.Error()

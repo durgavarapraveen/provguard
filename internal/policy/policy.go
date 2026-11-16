@@ -56,12 +56,27 @@ type Result struct {
 	Decision string // what provguard returns to the agent (None in audit mode)
 	Would    string // what balanced/strict would return; set in every profile
 	Rule     string
-	Reason   string
+	Reason   string   // technical: rule, labels and sinks (audit log, explain)
+	Summary  string   // one plain sentence for the user; see Message
+	Hosts    []string // egress hosts the user could add to allowed_hosts
+
+	sinks []shell.Sink
+	dest  string // untrusted_destination: the address from untrusted content
 }
 
 // Evaluate applies the rules and the active profile.
 func Evaluate(in Input) Result {
 	r := evaluate(in)
+	if r.Rule != "" {
+		s := in.Session
+		if s == nil {
+			s = &store.Session{}
+		}
+		r.Summary = summary(r.Rule, s, r.sinks, r.dest)
+		if r.Rule == "secret_in_sink" || r.Rule == "lethal_trifecta" {
+			r.Hosts = safeHosts(r.sinks, s.UntrustedValues)
+		}
+	}
 	switch in.Config.ProfileName() {
 	case config.Audit:
 		r.Decision = None
@@ -121,8 +136,10 @@ func evaluate(in Input) Result {
 	// 3. Egress to a destination that came from untrusted content.
 	if len(egress) > 0 && len(s.UntrustedValues) > 0 {
 		if v := untrustedDestination(in, egress, s.UntrustedValues); v != "" {
-			return result(Ask, "untrusted_destination", fmt.Sprintf(
+			r := result(Ask, "untrusted_destination", fmt.Sprintf(
 				"this call sends data to %q, which came from untrusted content (%s)", v, firstSource(s.TaintSources)), egress)
+			r.dest = v
+			return r
 		}
 	}
 
@@ -358,7 +375,7 @@ func result(would, rule, why string, sinks []shell.Sink) Result {
 		}
 		ss = append(ss, s.String())
 	}
-	return Result{Would: would, Rule: rule,
+	return Result{Would: would, Rule: rule, sinks: sinks,
 		Reason: "provguard (" + rule + "): " + why + ". Action: " + strings.Join(ss, ", ") + "."}
 }
 
