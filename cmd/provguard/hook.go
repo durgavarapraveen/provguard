@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/durgavarapraveen/provguard/internal/adapter/claudecode"
+	"github.com/durgavarapraveen/provguard/internal/allowonce"
 	"github.com/durgavarapraveen/provguard/internal/audit"
 	"github.com/durgavarapraveen/provguard/internal/config"
 	"github.com/durgavarapraveen/provguard/internal/doctor"
@@ -120,6 +121,24 @@ func handle(e event.Event, stdout io.Writer, rec *audit.Record) {
 		if r.Would != policy.None {
 			rec.Rule, rec.Reason = r.Rule, r.Reason
 		}
+		if r.Decision != policy.None {
+			// The user can approve this exact call once (provguard allow).
+			if key == nil {
+				key, _ = fingerprint.LoadOrCreate(home)
+			}
+			if key != nil {
+				tok := allowonce.Token(key, e.SessionID, e.ToolName, text)
+				if allowonce.Consume(home, tok, time.Now()) {
+					rec.Override = "allow_once:" + tok
+					return
+				}
+				if allowonce.Record(home, tok, allowonce.Pending{
+					Session: e.SessionID, Tool: e.ToolName, Command: text, Rule: r.Rule, Time: time.Now(),
+				}) == nil {
+					r.Reason += allowonce.Hint(tok)
+				}
+			}
+		}
 		switch r.Decision {
 		case policy.Deny:
 			respond(stdout, rec, claudecode.Deny, r.Rule, r.Reason)
@@ -132,6 +151,7 @@ func handle(e event.Event, stdout io.Writer, rec *audit.Record) {
 		}
 	case event.SessionBeg:
 		store.GC(home)
+		allowonce.GC(home, time.Now())
 		days := cfg.AuditRetentionDays
 		if days == 0 {
 			days = audit.DefaultRetentionDays
