@@ -15,5 +15,10 @@
 ### Benchmark
 - 14 attack cases and 31 normal tasks. `balanced`: 10 blocked, 4 asked, 0 missed; 0 false positives in 86 calls.
 
+### Security review fixes (before release)
+- 13 critical self-protection bypasses and 9 high-severity issues found in a full review are fixed, each with a regression test. See docs/FINDINGS.md (F15).
+- Paths are checked as the OS resolves them (junctions, symlinks, 8.3 names, trailing dots, `::$DATA`).
+- More guarded settings keys (`env`, `statusLine`, `apiKeyHelper`, …); secrets are checked in commits before a push; `gh` output is trusted only when outsiders cannot have written it.
+
 ### Known limitations
 - See docs/THREAT_MODEL.md. Real-agent benchmark runs, `ConfigChange` and `onFailure: block` are not yet verified live.

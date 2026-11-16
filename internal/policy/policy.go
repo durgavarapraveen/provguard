@@ -15,6 +15,7 @@ package policy
 
 import (
 	"fmt"
+	"net"
 	"net/url"
 	"path"
 	"strings"
@@ -44,6 +45,9 @@ type Input struct {
 	// RemoteTrusted reports whether a git remote (name or URL) belongs to a
 	// trusted owner. nil means "never trusted".
 	RemoteTrusted func(remote string) bool
+	// OutgoingDiff returns the commits a git push would send (patch text).
+	// Used only when the session holds secrets. nil means "unknown".
+	OutgoingDiff func() string
 }
 
 // Result is the judgment.
@@ -86,6 +90,17 @@ func evaluate(in Input) Result {
 			return result(Deny, "secret_in_sink", fmt.Sprintf(
 				"this %s call contains a secret this session read earlier (%s; matched as %s)",
 				in.Tool, firstSource(s.SensitiveSources), kind), in.Sinks)
+		}
+	}
+
+	// 1b. A secret inside the commits being pushed. Review finding: pushes to
+	// a trusted remote skip rule 2, so an agent could commit .env and push it
+	// to a public repository.
+	if len(s.Fingerprints) > 0 && in.Key != nil && in.OutgoingDiff != nil && hasGitPush(in.Sinks) {
+		if kind := SecretIn(in.OutgoingDiff(), s.Fingerprints, in.Key); kind != "" {
+			return result(Deny, "secret_in_push", fmt.Sprintf(
+				"the commits this push would send contain a secret this session read earlier (%s; matched as %s)",
+				firstSource(s.SensitiveSources), kind), filter(in.Sinks, shell.Egress))
 		}
 	}
 
@@ -160,6 +175,15 @@ func externalEgress(in Input) []shell.Sink {
 	return out
 }
 
+func hasGitPush(sinks []shell.Sink) bool {
+	for _, s := range sinks {
+		if strings.HasPrefix(s.Detail, "git_push") {
+			return true
+		}
+	}
+	return false
+}
+
 // gitRemote returns the remote of a "git push" target ("origin main" → "origin").
 func gitRemote(target string) string {
 	f := strings.Fields(target)
@@ -169,7 +193,9 @@ func gitRemote(target string) string {
 	return f[0]
 }
 
-// isLocal reports whether a sink target points to this machine.
+// isLocal reports whether a sink target points to this machine. Review
+// finding: a prefix test on "127." accepted attacker hosts such as
+// "127.attacker.example"; the host must parse as a loopback IP.
 func isLocal(target string) bool {
 	t := strings.ToLower(strings.TrimSpace(target))
 	if t == "" {
@@ -178,11 +204,16 @@ func isLocal(target string) bool {
 	host := t
 	if u, err := url.Parse(t); err == nil && u.Host != "" {
 		host = u.Hostname()
+	} else if h, _, err := net.SplitHostPort(strings.Split(t, "/")[0]); err == nil {
+		host = h
 	} else {
-		host = strings.Split(strings.Split(t, "/")[0], ":")[0]
+		host = strings.Split(t, "/")[0]
 	}
-	return host == "localhost" || strings.HasPrefix(host, "127.") || host == "::1" || host == "[::1]" || host == "0.0.0.0" ||
-		strings.HasSuffix(host, ".localhost")
+	host = strings.Trim(host, "[]")
+	if ip := net.ParseIP(host); ip != nil {
+		return ip.IsLoopback() || ip.IsUnspecified()
+	}
+	return host == "localhost" || strings.HasSuffix(host, ".localhost")
 }
 
 // protectedBranches: force-pushing these always asks.

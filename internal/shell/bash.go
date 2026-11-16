@@ -1,6 +1,7 @@
 package shell
 
 import (
+	"strconv"
 	"strings"
 
 	"mvdan.cc/sh/v3/syntax"
@@ -67,7 +68,7 @@ func (b *bashAn) stmt(s *syntax.Stmt) {
 				b.a.sink(Egress, "dev_tcp", target)
 				// A shell or interpreter wired to a socket, or a socket read
 				// as input, is a reverse shell: remote code execution.
-				if p := stdinProgram(s); shells[p] || interpreters[p] ||
+				if p, _ := b.effective(s); shells[p] || interpreters[p] ||
 					r.Op == syntax.RdrIn || r.Op == syntax.RdrInOut || r.Op == syntax.DplIn {
 					b.a.sink(ExecRemote, "reverse_shell", target)
 				}
@@ -97,13 +98,13 @@ func (b *bashAn) stmt(s *syntax.Stmt) {
 			if r.Op == syntax.WordHdoc {
 				body = r.Word
 			}
-			if body == nil || !isShellStdin(s) {
+			if body == nil || !b.stdinShell(s) {
 				continue
 			}
 			// A shell reads the heredoc as bash; an interpreter (python -,
 			// node, perl…) reads it as its own code. Found in review: python
 			// heredocs were parsed as bash.
-			if name := stdinProgram(s); interpreters[name] {
+			if name, _ := b.effective(s); interpreters[name] {
 				v, dyn := b.word(body)
 				inlineCode(b.a, name, v, dyn)
 			} else {
@@ -113,29 +114,42 @@ func (b *bashAn) stmt(s *syntax.Stmt) {
 	}
 }
 
-// stdinProgram returns the base name of the program that s runs.
-func stdinProgram(s *syntax.Stmt) string {
+// effective returns the program that s really runs and its arguments, after
+// resolving quotes and removing prefix wrappers. Review finding: the first
+// word alone (unresolved) missed `sudo bash <<EOF`, `curl … | sudo bash`
+// and `"bash" <<EOF`.
+func (b *bashAn) effective(s *syntax.Stmt) (string, []string) {
 	c, ok := s.Cmd.(*syntax.CallExpr)
 	if !ok || len(c.Args) == 0 {
-		return ""
+		return "", nil
 	}
-	return baseName(c.Args[0].Lit())
+	args := make([]string, len(c.Args))
+	for i, w := range c.Args {
+		args[i], _ = b.word(w)
+	}
+	for len(args) > 0 {
+		name := baseName(args[0])
+		if !prefixes[name] {
+			return name, args[1:]
+		}
+		args = args[1+skipPrefixOpts(name, args[1:]):]
+	}
+	return "", nil
 }
 
-// isShellStdin reports whether s runs a shell or interpreter that reads its script from stdin.
-func isShellStdin(s *syntax.Stmt) bool {
-	c, ok := s.Cmd.(*syntax.CallExpr)
-	if !ok || len(c.Args) == 0 {
-		return false
-	}
-	name := baseName(c.Args[0].Lit())
+// stdinShell reports whether s runs a shell or interpreter that reads its
+// script from stdin (no script file and no inline code).
+func (b *bashAn) stdinShell(s *syntax.Stmt) bool {
+	name, rest := b.effective(s)
 	if !shells[name] && !interpreters[name] {
 		return false
 	}
-	for _, w := range c.Args[1:] {
-		l := w.Lit()
-		if l == "" || !strings.HasPrefix(l, "-") || l == "-c" || l == "-e" {
-			return false // has a script file or inline code
+	for _, x := range rest {
+		if x == "-" {
+			continue
+		}
+		if !strings.HasPrefix(x, "-") || x == "-c" || x == "-e" || x == "--eval" {
+			return false
 		}
 	}
 	return true
@@ -183,13 +197,11 @@ func (b *bashAn) pipeline(x *syntax.BinaryCmd) {
 
 	fetch, decode := false, false
 	for i, st := range stages {
-		c, ok := st.Cmd.(*syntax.CallExpr)
-		if !ok || len(c.Args) == 0 {
+		name, _ := b.effective(st)
+		if name == "" {
 			continue
 		}
-		name, _ := b.word(c.Args[0])
-		name = baseName(name)
-		if i > 0 && isShellStdin(st) {
+		if i > 0 && b.stdinShell(st) {
 			switch {
 			case fetch:
 				b.a.sink(ExecRemote, "pipe_to_"+name, "")
@@ -222,11 +234,17 @@ func (b *bashAn) word(w *syntax.Word) (string, bool) {
 					sb.WriteString(unescapeDq(x.Value))
 				} else {
 					sb.WriteString(unescape(x.Value))
+					// An unquoted glob expands at run time (.cla?de, settings.jso[n]).
+					// Keep the pattern text (callers can match it) but mark it dynamic.
+					if strings.ContainsAny(x.Value, "*?[") {
+						dyn = true
+					}
 				}
 			case *syntax.SglQuoted:
-				sb.WriteString(x.Value)
-				if x.Dollar && strings.Contains(x.Value, `\`) {
-					dyn = true // $'..' escapes such as \x41
+				if x.Dollar {
+					sb.WriteString(decodeANSIC(x.Value)) // $'\x61' → "a"
+				} else {
+					sb.WriteString(x.Value)
 				}
 			case *syntax.DblQuoted:
 				parts(x.Parts, true)
@@ -256,6 +274,64 @@ func (b *bashAn) word(w *syntax.Word) (string, bool) {
 	}
 	parts(w.Parts, false)
 	return sb.String(), dyn
+}
+
+// decodeANSIC decodes bash $'...' escapes, so $'.cl\x61ude' reads as ".claude".
+func decodeANSIC(s string) string {
+	if !strings.Contains(s, `\`) {
+		return s
+	}
+	simple := map[byte]string{'a': "\a", 'b': "\b", 'e': "\x1b", 'E': "\x1b", 'f': "\f", 'n': "\n",
+		'r': "\r", 't': "\t", 'v': "\v", '\\': `\`, '\'': "'", '"': `"`, '?': "?"}
+	var sb strings.Builder
+	for i := 0; i < len(s); i++ {
+		if s[i] != '\\' || i+1 >= len(s) {
+			sb.WriteByte(s[i])
+			continue
+		}
+		c := s[i+1]
+		if r, ok := simple[c]; ok {
+			sb.WriteString(r)
+			i++
+			continue
+		}
+		hexN := map[byte]int{'x': 2, 'u': 4, 'U': 8}[c]
+		if hexN > 0 {
+			j := i + 2
+			for j < len(s) && j < i+2+hexN && isHex(s[j]) {
+				j++
+			}
+			if j > i+2 {
+				if v, err := strconv.ParseUint(s[i+2:j], 16, 32); err == nil {
+					sb.WriteRune(rune(v))
+					i = j - 1
+					continue
+				}
+			}
+		}
+		if c >= '0' && c <= '7' { // octal \nnn
+			j := i + 1
+			for j < len(s) && j < i+4 && s[j] >= '0' && s[j] <= '7' {
+				j++
+			}
+			if v, err := strconv.ParseUint(s[i+1:j], 8, 8); err == nil {
+				sb.WriteByte(byte(v))
+				i = j - 1
+				continue
+			}
+		}
+		if c == 'c' && i+2 < len(s) { // \cX control character
+			sb.WriteByte(s[i+2] & 0x1f)
+			i += 2
+			continue
+		}
+		sb.WriteByte(s[i])
+	}
+	return sb.String()
+}
+
+func isHex(c byte) bool {
+	return c >= '0' && c <= '9' || c >= 'a' && c <= 'f' || c >= 'A' && c <= 'F'
 }
 
 func unescape(s string) string {

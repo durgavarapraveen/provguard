@@ -12,6 +12,7 @@ import (
 	"github.com/durgavarapraveen/provguard/internal/config"
 	"github.com/durgavarapraveen/provguard/internal/event"
 	"github.com/durgavarapraveen/provguard/internal/redact"
+	"github.com/durgavarapraveen/provguard/internal/shell"
 )
 
 // maxScan caps how much tool output is scanned, to keep hook latency low.
@@ -132,9 +133,14 @@ func Post(e event.Event, env Env) Result {
 					r.untrusted("repo_owner:" + owner)
 				}
 			}
-			if e.ToolName == "Read" && SensitivePath(p) {
+			// Grep prints matching lines of the files it searches, so grepping
+			// .env exposes its values like Read does (review finding).
+			if SensitivePath(p) {
 				r.sensitive("file:" + path.Base(norm(p)))
 			}
+		}
+		if g := str(e.ToolInput, "glob"); e.ToolName == "Grep" && g != "" && sensitiveArg(g) {
+			r.sensitive("file:" + path.Base(norm(g)))
 		}
 	case e.ToolName == "Agent":
 		if id := agentID(e.ToolOutput); id != "" && env.AgentTainted != nil && env.AgentTainted(id) {
@@ -272,35 +278,151 @@ var fetchRules = []struct {
 }
 
 var (
-	ghRepoFlag = regexp.MustCompile(`(?:-R|--repo)[\s=]+["']?([A-Za-z0-9_.-]+)/`)
-	ghURL      = regexp.MustCompile(`(?i)github\.com[/:]([A-Za-z0-9_.-]+)/`)
-	ghAPIRepo  = regexp.MustCompile(`\bgh\s+api\s+["']?/?repos/([A-Za-z0-9_.-]+)/`)
+	ghURL       = regexp.MustCompile(`(?i)github\.com[/:]([A-Za-z0-9_.-]+)/`)
+	ghAPIRepo   = regexp.MustCompile(`^/?repos/([A-Za-z0-9_.-]+)/`)
+	ghAPIPublic = regexp.MustCompile(`(?i)issues|comments|discussions|search|reviews|graphql|notifications|events|gists`)
 )
 
-// trustedGitHubRead reports whether a gh/glab read targets a repo whose owner
-// is in trusted_repo_owners. Found live: gh commands on the user's own repo
-// were the main source of untrusted labels (10 of 13).
+// ghSafeJSON are `gh pr view --json` fields that outsiders cannot write.
+var ghSafeJSON = map[string]bool{
+	"state": true, "url": true, "number": true, "mergedat": true, "mergeable": true, "mergestatestatus": true,
+	"headrefname": true, "baserefname": true, "isdraft": true, "statuscheckrollup": true, "createdat": true,
+	"updatedat": true, "closed": true, "id": true, "reviewdecision": true, "additions": true, "deletions": true,
+	"changedfiles": true, "mergecommit": true, "closedat": true,
+}
+
+// trustedGitHubRead reports whether every gh/glab call in cmd only reads
+// content the user's own accounts wrote. Found live: gh commands on the
+// user's own repo were the main source of untrusted labels (10 of 13).
+// Review findings: one trusted -R anywhere used to trust the whole command,
+// and issue/PR/discussion text is attacker-written even in your own public
+// repo, so those are never trusted by repo owner alone.
 func trustedGitHubRead(why, cmd, cwd string, env Env) bool {
 	if why != "github_cli" && why != "glab_cli" || len(env.Config.TrustedRepoOwners) == 0 {
 		return false
 	}
-	owner := ""
-	for _, re := range []*regexp.Regexp{ghRepoFlag, ghAPIRepo, ghURL} {
-		if m := re.FindStringSubmatch(cmd); m != nil {
-			owner = m[1]
-			break
+	seen := false
+	for _, c := range shell.AnalyzeUnknown(cmd).Cmds {
+		if c.Name != "gh" && c.Name != "glab" {
+			continue
+		}
+		seen = true
+		owner, safe := ghCall(c.Args[1:])
+		if !safe {
+			return false
+		}
+		if owner == "" && cwd != "" && env.RepoOwner != nil {
+			owner = env.RepoOwner(cwd + "/x") // the repo of the working directory
+		}
+		if owner == "" || !env.Config.RepoOwnerTrusted(owner) {
+			return false
 		}
 	}
-	if owner == "" && cwd != "" && env.RepoOwner != nil {
-		owner = env.RepoOwner(cwd + "/x") // the repo of the working directory
-	}
-	return owner != "" && env.Config.RepoOwnerTrusted(owner)
+	return seen
 }
 
+// ghCall returns the repo owner a gh call targets ("" = the cwd repo) and
+// whether its output is free of text that outsiders can write.
+func ghCall(args []string) (owner string, safe bool) {
+	var pos []string
+	jsonFields := ""
+	for i := 0; i < len(args); i++ {
+		x := args[i]
+		next := ""
+		if i+1 < len(args) {
+			next = args[i+1]
+		}
+		switch {
+		case x == "-R" || x == "--repo":
+			owner, _, _ = strings.Cut(next, "/")
+			i++
+		case strings.HasPrefix(x, "--repo="):
+			owner, _, _ = strings.Cut(strings.TrimPrefix(x, "--repo="), "/")
+		case x == "--json":
+			jsonFields = strings.ToLower(next)
+			i++
+		case x == "-q" || x == "--jq" || x == "-t" || x == "--template" || x == "-X" || x == "--method":
+			i++
+		case strings.HasPrefix(x, "-"):
+		default:
+			pos = append(pos, x)
+			if m := ghURL.FindStringSubmatch(x); m != nil {
+				owner = m[1]
+			}
+		}
+	}
+	if len(pos) == 0 {
+		return owner, false
+	}
+	sub := ""
+	if len(pos) > 1 {
+		sub = pos[1]
+	}
+	switch pos[0] {
+	case "api":
+		if len(pos) < 2 || ghAPIPublic.MatchString(pos[1]) {
+			return owner, false
+		}
+		if m := ghAPIRepo.FindStringSubmatch(pos[1]); m != nil {
+			owner = m[1]
+		}
+		return owner, true
+	case "pr":
+		switch sub {
+		case "create", "merge", "close", "ready", "edit", "checkout", "checks", "reopen":
+			return owner, true
+		case "view", "list", "status":
+			if jsonFields == "" {
+				return owner, false // titles, bodies and comments
+			}
+			for _, f := range strings.Split(jsonFields, ",") {
+				if !ghSafeJSON[strings.TrimSpace(f)] {
+					return owner, false
+				}
+			}
+			return owner, true
+		}
+	case "repo":
+		return owner, sub == "view" || sub == "create" || sub == "clone"
+	case "run":
+		return owner, (sub == "list" || sub == "view" || sub == "watch") && !containsStr(args, "--log") && !containsStr(args, "--log-failed")
+	case "release":
+		return owner, sub == "view" || sub == "list" || sub == "create"
+	}
+	return owner, false // search, issue, discussion, gist, …: outsiders write these
+}
+
+func containsStr(xs []string, s string) bool {
+	for _, x := range xs {
+		if x == s {
+			return true
+		}
+	}
+	return false
+}
+
+// fetchDetails are EGRESS sink details whose command output is remote content.
+var fetchDetails = []string{"curl", "wget", "http", "https", "xh", "aria2c", "invoke-webrequest", "invoke-restmethod",
+	"start-bitstransfer", "nc", "ncat", "netcat", "socat", "telnet", "interpreter_network:", "dotnet_network",
+	"openssl_s_client", "certutil_download", "bitsadmin", "pip_download", "pip3_download", "uv_download"}
+
+// fetchCommand names the reason a command's output is remote content. The
+// regex rules catch gh/glab; the shell analyzer catches clients called by
+// path (/usr/bin/curl, "C:\…\curl.exe") and inline-code fetches (review).
 func fetchCommand(cmd string) string {
 	for _, r := range fetchRules {
 		if r.re.MatchString(cmd) {
 			return r.name
+		}
+	}
+	for _, s := range shell.AnalyzeUnknown(cmd).Sinks {
+		if s.Class != shell.Egress {
+			continue
+		}
+		for _, d := range fetchDetails {
+			if s.Detail == d || strings.HasSuffix(d, ":") && strings.HasPrefix(s.Detail, d) {
+				return s.Detail
+			}
 		}
 	}
 	return ""
@@ -331,7 +453,37 @@ func secretCommand(cmd string) string {
 			return "file:" + path.Base(norm(tok))
 		}
 	}
+	// Quotes and globs hide names from the token split (cat .en''v, cat .e?v):
+	// use the analyzer's resolved arguments (review finding).
+	for _, c := range shell.AnalyzeUnknown(cmd).Cmds {
+		for _, a := range c.Args[1:] {
+			if sensitiveArg(a) {
+				return "file:" + path.Base(norm(a))
+			}
+		}
+	}
 	return ""
+}
+
+// sensitiveCandidates are file names that a glob argument might expand to.
+var sensitiveCandidates = []string{".env", ".env.local", ".env.production", "id_rsa", "id_ed25519", "credentials",
+	".netrc", ".git-credentials", ".credentials.json", "secrets.json", "terraform.tfstate"}
+
+// sensitiveArg: a sensitive path, or a glob that can match one.
+func sensitiveArg(a string) bool {
+	if SensitivePath(a) {
+		return true
+	}
+	if !strings.ContainsAny(a, "*?[") {
+		return false
+	}
+	base := path.Base(norm(a))
+	for _, c := range sensitiveCandidates {
+		if ok, _ := path.Match(base, c); ok {
+			return true
+		}
+	}
+	return false
 }
 
 // --- paths ---
@@ -356,9 +508,14 @@ var sensitiveNames = map[string]bool{
 	".npmrc": true, ".pypirc": true, ".git-credentials": true, ".pgpass": true,
 	"secrets.json": true, "secrets.yaml": true, "secrets.yml": true,
 	"service-account.json": true,
+	// review: Claude's own OAuth token, gcloud ADC, and other credential stores
+	".credentials.json": true, "application_default_credentials.json": true, ".htpasswd": true,
+	".dockercfg": true, ".vault-token": true, ".boto": true, ".s3cfg": true, ".terraformrc": true,
+	"terraform.tfstate": true, "terraform.tfstate.backup": true,
 }
 
-var sensitiveExt = map[string]bool{".pem": true, ".key": true, ".p12": true, ".pfx": true, ".jks": true, ".keystore": true}
+var sensitiveExt = map[string]bool{".pem": true, ".key": true, ".p12": true, ".pfx": true, ".jks": true, ".keystore": true,
+	".tfstate": true, ".tfvars": true}
 
 var safeEnvSuffix = map[string]bool{"example": true, "sample": true, "template": true, "dist": true, "defaults": true}
 

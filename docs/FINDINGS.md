@@ -116,6 +116,13 @@ Lesson: the audit log is the best test input. Real sessions produced 4 bugs in 1
 5. **ConfigChange:** registered; on a settings change, provguard re-checks hook integrity and marks the session untrusted on tampering. **Not verified live:** the event's payload fields are unknown; the check uses only the session's cwd.
 6. **PowerShell here-strings** (`@'…'@`) are parsed as one string.
 
+### F15. Full security review (independent reviewer + own review) — CRIT and HIGH fixed
+34 issues found; all 13 CRIT and 9 HIGH are fixed, each with a regression test (`*/review_test.go`). Spot-checks confirmed every claim tested.
+- **Self-protection bypasses (CRIT), all verified before the fix:** Windows path spellings (trailing dot/space, `::$DATA`, `\\?\`, 8.3 names, `.\`), junctions and symlinks (Go's `EvalSymlinks` does not follow junctions, so provguard now uses `GetFinalPathNameByHandleW`), other file tools (MCP `write_file`/`move_file`, MultiEdit, NotebookEdit), copies with `-t`/Windows switches/directory destinations, `perl -pi`/`ruby -i`, script files written then run, archives and `git checkout -- path`, globs and `$'\x..'` escapes, implicit chdir (`env -C`, `git -C`), PowerShell `$x = cmd`, parameter abbreviations and `-Name:value`, and running provguard under another name.
+- **HIGH:** settings keys `env` (could redirect `PROVGUARD_HOME`), `statusLine`, `apiKeyHelper` now guarded; loopback check by IP (was `HasPrefix("127.")`); every curl destination incl. `--connect-to`/`--proxy`; git remote trust checks the host, `pushurl`, `insteadOf` and `-c`; secrets scanned in commits before a push; new egress channels (openssl, certutil, busybox, dynamic URLs, `exec(b64decode)`); `sudo bash`/`"bash"` stdin shells; per-call `gh` trust (issue/PR text is outsider-written even in your own repo); labeling gaps; a Windows rename race that lost session updates.
+- **Accepted trade-offs:** `git pull/merge/switch` that change a tracked `.claude/settings.json` are allowed (blocking them breaks normal work); `ConfigChange` and `doctor` watch for the result. Archive extraction into a folder that has a `.claude` folder is denied. Self-protection now costs about 4 ms per call (OS path resolution).
+- MED/LOW/NIT items from the review remain open (see the review list).
+
 ## Measurements
 
 ### M1. Hook latency, log-only (Windows 11, go1.27.4, 2026-11-16)
