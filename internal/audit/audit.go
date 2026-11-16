@@ -2,6 +2,7 @@
 package audit
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -37,6 +38,7 @@ type Record struct {
 	Decision     string         `json:"decision"`
 	Rule         string         `json:"rule,omitempty"`
 	Labels       []string       `json:"labels,omitempty"`
+	Sinks        []string       `json:"sinks,omitempty"` // shell sink classes (PreToolUse Bash/PowerShell)
 	// Session state after this event (PostToolUse / UserPromptSubmit only).
 	SessionTainted   bool   `json:"session_tainted,omitempty"`
 	SessionSensitive bool   `json:"session_sensitive,omitempty"`
@@ -92,11 +94,14 @@ func Write(home string, r Record) error {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
-	line, err := json.Marshal(r)
-	if err != nil {
+	// No HTML escaping: keep "->" and "<" readable in the log.
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(r); err != nil { // Encode adds the newline
 		return err
 	}
-	line = append(line, '\n')
+	line := buf.Bytes()
 	name := filepath.Join(dir, r.Time.UTC().Format("2006-01-02")+".jsonl")
 	f, err := os.OpenFile(name, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
 	if err != nil {
