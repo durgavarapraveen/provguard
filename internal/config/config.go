@@ -32,8 +32,19 @@ type Config struct {
 	// provides (mcp_server.source == "sdk"). Default true.
 	TrustSDKMCPServers *bool `json:"trust_sdk_mcp_servers,omitempty"`
 
-	// AllowedHosts: fetched content from these hosts is trusted (used from week 4).
+	// AllowedHosts: fetched content from these hosts is trusted, and data
+	// sent to them does not count as egress.
 	AllowedHosts []string `json:"allowed_hosts,omitempty"`
+
+	// BlockMode is "deny" (default) or "ask". In the balanced profile, "ask"
+	// turns policy denies (secret in call, lethal trifecta) into Claude Code's
+	// approval prompt. Self-protection always denies; strict ignores this.
+	BlockMode string `json:"block_mode,omitempty"`
+
+	// SessionTitleIcon puts the trust icon (🔴 🟡 🟠) in front of the session
+	// title, so untrusted sessions stand out in the app's session list.
+	// Default true.
+	SessionTitleIcon *bool `json:"session_title_icon,omitempty"`
 
 	// AuditRetentionDays: daily audit logs older than this are deleted at
 	// session start. 0 = default (30); negative = keep forever.
@@ -94,6 +105,11 @@ func (c Config) HostAllowed(host string) bool {
 }
 
 func (c Config) TrustSDK() bool { return c.TrustSDKMCPServers == nil || *c.TrustSDKMCPServers }
+
+func (c Config) TitleIconOn() bool { return c.SessionTitleIcon == nil || *c.SessionTitleIcon }
+
+// BlockAsks reports block_mode "ask" (any other value means deny).
+func (c Config) BlockAsks() bool { return strings.EqualFold(strings.TrimSpace(c.BlockMode), "ask") }
 
 func (c Config) RepoOwnerTrusted(owner string) bool {
 	return contains(c.TrustedRepoOwners, owner)
