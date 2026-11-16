@@ -429,6 +429,7 @@ var protectedText = regexp.MustCompile(`(?i)` + strings.Join([]string{
 	`\.provguard\b`,
 	`\.pro[a-z0-9]*[*?\[]`, // a glob that can expand to .provguard
 	`provguard(?:\.exe)?['"]?\s+(?:uninstall|init|reset|allow)\b`,
+	`provguard(?:\.exe)?['"]?\s+config\s+[a-z]`, // config with a setting changes it
 }, "|"))
 
 // Script scanning limits. Review finding (HIGH): one 1 MiB read of the
@@ -514,10 +515,16 @@ func checkSelfCommands(an *shell.Analysis) Verdict {
 		prog := strings.Contains(strings.ToLower(c.Name), "provguard") ||
 			c.Name == "go" && containsArg(c.Args, "provguard") // go run ./cmd/provguard
 		if prog {
-			for _, a := range c.Args[1:] {
-				switch strings.ToLower(strings.Trim(a, `'",`)) {
+			args := c.Args[1:]
+			for i, a := range args {
+				switch sub := strings.ToLower(strings.Trim(a, `'",`)); sub {
 				case "init", "uninstall", "reset", "allow":
-					return deny("self_protect_install", "blocked an agent from running provguard "+strings.ToLower(a))
+					return deny("self_protect_install", "blocked an agent from running provguard "+sub)
+				case "config":
+					// Reading the settings is fine; changing them is the user's call.
+					if i+1 < len(args) {
+						return deny("self_protect_install", "blocked an agent from changing provguard settings (provguard config)")
+					}
 				}
 			}
 		}
