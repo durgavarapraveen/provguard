@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -9,7 +8,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"time"
 
@@ -101,35 +99,10 @@ func runExplain(args []string, w io.Writer) int {
 
 // policyHits reads the audit logs of the last 7 days for decisions in a session.
 func policyHits(home, id string) []audit.Record {
-	files, _ := filepath.Glob(filepath.Join(home, "audit", "*.jsonl"))
-	sort.Strings(files)
-	if len(files) > 7 {
-		files = files[len(files)-7:]
-	}
-	var out []audit.Record
-	for _, f := range files {
-		fh, err := os.Open(f)
-		if err != nil {
-			continue
-		}
-		sc := bufio.NewScanner(fh)
-		sc.Buffer(make([]byte, 64<<10), 8<<20)
-		for sc.Scan() {
-			line := sc.Bytes()
-			if !strings.Contains(string(line), id) {
-				continue
-			}
-			var r audit.Record
-			if json.Unmarshal(line, &r) != nil || r.SessionID != id {
-				continue
-			}
-			if r.Would != "" || r.Decision == "deny" || r.Decision == "ask" {
-				out = append(out, r)
-			}
-		}
-		fh.Close()
-	}
-	return out
+	recs, _ := audit.Read(home, time.Now().AddDate(0, 0, -7), func(r *audit.Record) bool {
+		return r.SessionID == id && (r.Would != "" || r.Decision == "deny" || r.Decision == "ask")
+	})
+	return recs
 }
 
 func runReset(args []string, w io.Writer) int {
@@ -221,10 +194,20 @@ func yesNo(b bool) string {
 	return "no"
 }
 
+//
+// Logged commands are written by the agent, so control characters are
+// replaced: an escape sequence could otherwise change the user's terminal
+// (review finding). It cuts at a character boundary, not inside one.
 func oneLine(s string, max int) string {
+	s = strings.Map(func(r rune) rune {
+		if r < 0x20 || r >= 0x7f && r <= 0x9f {
+			return ' '
+		}
+		return r
+	}, s)
 	s = strings.Join(strings.Fields(s), " ")
-	if len(s) > max {
-		return s[:max] + "…"
+	if r := []rune(s); len(r) > max {
+		return string(r[:max]) + "…"
 	}
 	return s
 }

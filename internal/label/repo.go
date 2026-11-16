@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 )
 
@@ -105,6 +106,27 @@ func RemoteURL(root, remote string) string {
 		return best
 	}
 	return u
+}
+
+// Remotes returns the repo's remote names and, for each, the repository
+// that `gh repo set-default` chose ("" when unset), from .git/config.
+func Remotes(root string) (names []string, ghDefault map[string]string) {
+	cfg := gitConfig(root)
+	ghDefault = map[string]string{}
+	for k, v := range cfg {
+		rest, ok := strings.CutPrefix(k, "remote.")
+		if !ok {
+			continue
+		}
+		if name, ok := strings.CutSuffix(rest, ".url"); ok {
+			names = append(names, name)
+		}
+		if name, ok := strings.CutSuffix(rest, ".gh-resolved"); ok {
+			ghDefault[name] = v
+		}
+	}
+	sort.Strings(names)
+	return names, ghDefault
 }
 
 // gitConfig reads the repo's .git/config into "section.sub.key" → value

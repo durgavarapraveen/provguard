@@ -2,6 +2,7 @@ package shell
 
 import (
 	"regexp"
+	"slices"
 	"strings"
 )
 
@@ -63,6 +64,9 @@ func command(a *Analysis, args []string, dyn []bool, depth int, d Dialect) {
 		return
 	}
 	name := baseName(args[0])
+	if dyn[0] && knownProgramPath(args[0]) {
+		dyn[0] = false // "$HOME/bin/tool": the program is tool
+	}
 	a.Cmds = append(a.Cmds, Cmd{Name: name, Args: args, Dynamic: dyn[0]})
 	if dyn[0] {
 		a.sink(Opaque, "dynamic_command", args[0])
@@ -225,6 +229,60 @@ func afterCode(args []string, flags map[string]bool) []string {
 var scriptRunners = set("python", "python3", "python2", "py", "node", "nodejs", "bun", "ruby", "perl",
 	"php", "lua", "tclsh", "sh", "bash", "zsh", "dash", "ksh", "fish", "pwsh", "powershell", "source", ".", "rscript", "osascript")
 
+// posixShells share the sh option syntax (see shellScript). fish does not,
+// so it stays with the generic interpreter rules.
+var posixShells = set("sh", "bash", "zsh", "dash", "ksh")
+
+// shellScript parses a POSIX shell's options and returns the script file it
+// runs, or "" when it runs none: code from -c (checked elsewhere), stdin
+// (-s, or no file), or noexec (-n, -o noexec), which only checks syntax.
+// Options start with - or +; +n and +o noexec turn noexec off again.
+// Review finding: the generic interpreter loop took -e (errexit) for
+// node's inline-code -e, so `bash -e x.sh` skipped the script scan, and it
+// took +n for the script name.
+func shellScript(args []string) string {
+	noexec := false
+	for i := 0; i < len(args); i++ {
+		x := args[i]
+		switch {
+		case x == "--" || x == "-":
+			if i+1 < len(args) && !noexec {
+				return args[i+1]
+			}
+			return ""
+		case x == "-o" || x == "+o" || x == "-O" || x == "+O": // bash -O/+O: shopt options
+			if i+1 < len(args) && args[i+1] == "noexec" && (x == "-o" || x == "+o") {
+				noexec = x == "-o"
+			}
+			i++
+		case strings.HasPrefix(x, "--"):
+			// long options (--norc, --posix, --login) take no value
+		case len(x) > 1 && (x[0] == '-' || x[0] == '+'):
+			if x[0] == '-' && strings.ContainsAny(x[1:], "cs") {
+				return "" // code from an argument or from stdin
+			}
+			if strings.ContainsRune(x[1:], 'n') {
+				noexec = x[0] == '-'
+			}
+			// A cluster ending in o or O takes the next argument as an
+			// option name (-eo pipefail). Review finding: "pipefail" was
+			// read as the script, so the real script was not scanned.
+			if last := x[len(x)-1]; (last == 'o' || last == 'O') && i+1 < len(args) {
+				if last == 'o' && args[i+1] == "noexec" {
+					noexec = x[0] == '-'
+				}
+				i++
+			}
+		default:
+			if noexec {
+				return ""
+			}
+			return x
+		}
+	}
+	return ""
+}
+
 // ScriptFiles returns files that a command will run as code: a script given
 // to an interpreter or shell, a Makefile, or package.json scripts. Callers
 // can read them; the analyzer itself never reads files.
@@ -258,6 +316,12 @@ func ScriptFiles(c Cmd) []string {
 		}
 		return nil
 	case scriptRunners[c.Name]:
+		if posixShells[c.Name] {
+			if f := shellScript(args); f != "" {
+				return []string{f}
+			}
+			return nil
+		}
 		for i := 0; i < len(args); i++ {
 			x := args[i]
 			if x == "-c" || x == "-e" || x == "-E" || x == "-r" || x == "-m" || x == "--eval" || x == "-" {
@@ -449,6 +513,8 @@ func classify(a *Analysis, name string, args []string) {
 		if len(pos) > 0 {
 			a.sink(Egress, "dns:"+name, pos[0])
 		}
+	case (name == "git" || name == "gh") && helpOnly(args):
+		// `gh repo delete --help` prints help and runs nothing.
 	case name == "git":
 		gitCmd(a, args)
 	case name == "gh":
@@ -619,11 +685,7 @@ func classify(a *Analysis, name string, args []string) {
 		}
 	case name == "sed" || name == "perl":
 		if hasFlag(args, 'i', "--in-place") || hasPrefixArg(args, "--in-place") {
-			files := pos
-			if !hasFlag(args, 'e', "--expression") && !hasFlag(args, 'f', "--file") && len(files) > 0 {
-				files = files[1:] // first positional is the script
-			}
-			for _, p := range files {
+			for _, p := range sedFiles(args) {
 				a.write(p, "write", false)
 			}
 		}
@@ -866,6 +928,12 @@ func gitCmd(a *Analysis, args []string) {
 	}
 	sub, rest := args[i], args[i+1:]
 	pos := positional(rest)
+	if code, ok := gitRunsCode(args[:i], sub, rest, pos); ok {
+		// Review finding: these run a command provguard never sees.
+		a.sink(Opaque, "git_runs_command:"+sub, "")
+		a.Code = append(a.Code, code)
+		return
+	}
 	switch sub {
 	case "checkout", "restore":
 		// "git checkout REF -- PATHS" / "git restore [--source X] PATHS" write PATHS.
@@ -977,6 +1045,103 @@ var ghPersist = map[string]map[string]bool{
 	"deploy-key": set("add"),
 }
 
+// sedFiles returns the files `sed -i` / `perl -i` edits. The script is the
+// value of -e/-f (or --expression/--file), or else the first positional.
+// Found live: with -e, the script itself ('/^\t"flag"$/d') was read as a
+// file name, and its "$" made it a write to an unknown path.
+func sedFiles(args []string) []string {
+	var files []string
+	script := false // a script came from -e/-f
+	for i := 0; i < len(args); i++ {
+		x := args[i]
+		switch {
+		case x == "--":
+			files = append(files, args[i+1:]...)
+			i = len(args)
+		case x == "-e" || x == "--expression" || x == "-f" || x == "--file":
+			script = true
+			i++ // skip the value
+		case strings.HasPrefix(x, "--expression=") || strings.HasPrefix(x, "--file="):
+			script = true
+		case strings.HasPrefix(x, "-") && len(x) > 1:
+			// A cluster of short options (-ne, -i.bak, -pe): i ends it with
+			// an attached backup suffix; e or f ends it with the script,
+			// attached (-es/x/y/) or in the next argument (-ne 's/x/y/').
+		cluster:
+			for j := 1; j < len(x); j++ {
+				switch x[j] {
+				case 'i':
+					break cluster
+				case 'e', 'f':
+					script = true
+					if j == len(x)-1 {
+						i++
+					}
+					break cluster
+				}
+			}
+		default:
+			files = append(files, x)
+		}
+	}
+	if !script && len(files) > 0 {
+		files = files[1:] // the first positional is the script
+	}
+	var out []string
+	for _, f := range files {
+		if f != "" {
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
+// gitRunsCode reports git calls that run a command given as an argument:
+// an alias defined with -c alias.X=…, submodule foreach, bisect run,
+// rebase --exec/-x, and filter-branch filters. It returns the arguments
+// as text, so callers can search them like other inline code.
+func gitRunsCode(global []string, sub string, rest, pos []string) (string, bool) {
+	all := strings.Join(rest, " ")
+	for j, g := range global {
+		if g == "-c" && j+1 < len(global) && strings.HasPrefix(strings.ToLower(global[j+1]), "alias.") {
+			return strings.Join(global[j+1:], " ") + " " + sub + " " + all, true
+		}
+	}
+	switch {
+	case sub == "submodule" && slices.Contains(pos, "foreach"),
+		sub == "bisect" && len(pos) > 0 && pos[0] == "run",
+		sub == "filter-branch":
+		return all, true
+	case sub == "rebase":
+		for _, x := range rest {
+			if x == "-x" || x == "--exec" || strings.HasPrefix(x, "--exec=") {
+				return all, true
+			}
+		}
+	}
+	return "", false
+}
+
+// gitCodeWords: with these, a later -h or --help belongs to the command git
+// runs, not to git.
+var gitCodeWords = set("foreach", "run", "--exec", "-x", "filter-branch")
+
+// helpOnly reports whether a git or gh call only prints help: --help or -h
+// right after a subcommand word. After an option it may be that option's
+// value (`gh pr create --body --help` creates a pull request), so it does
+// not count there, nor after "--".
+func helpOnly(args []string) bool {
+	for i, x := range args {
+		if x == "--" || gitCodeWords[x] || strings.HasPrefix(strings.ToLower(x), "alias.") {
+			return false
+		}
+		if (x == "--help" || x == "-h") && i > 0 && !strings.HasPrefix(args[i-1], "-") {
+			return true
+		}
+	}
+	return false
+}
+
 func ghCmd(a *Analysis, args []string) {
 	if p := positional(args); len(p) >= 3 && p[0] == "repo" && p[1] == "deploy-key" && p[2] == "add" {
 		a.sink(Persist, "gh_deploy_key_add", "")
@@ -1015,8 +1180,152 @@ func ghCmd(a *Analysis, args []string) {
 		return
 	}
 	if ghWrite[pos[0]][pos[1]] {
-		a.sink(Egress, "gh_"+pos[0]+"_"+pos[1], "")
+		target := ""
+		if ghRepoScoped[pos[0]] && !ghNeverOwn[pos[0]+" "+pos[1]] && !ghReadsFiles(args) {
+			target = GHRepoTarget(ghTargetRepos(args, pos[2:]))
+		}
+		a.sink(Egress, "gh_"+pos[0]+"_"+pos[1], target)
 	}
+}
+
+// ghRepoScoped: gh command groups whose writes go to one repository, either
+// the -R/--repo flag or the repository of the current folder.
+var ghRepoScoped = map[string]bool{
+	"issue": true, "pr": true, "release": true, "secret": true, "repo": true,
+}
+
+// ghNeverOwn: writes that are never "data staying in your repository",
+// because they create a new place (repo create/fork), move data to another
+// repository (issue transfer), publish files or change who can read
+// (release create/upload/edit, repo edit/rename/archive). Variables and
+// workflow inputs are readable by collaborators and in run logs, so the
+// variable and workflow groups are not repo-scoped at all. Review findings.
+var ghNeverOwn = map[string]bool{
+	"repo create": true, "repo fork": true, "repo edit": true, "repo rename": true, "repo archive": true,
+	"issue transfer": true, "release create": true, "release upload": true, "release edit": true,
+}
+
+// ghFileFlags read a file into what gh sends (a body, release notes, saved
+// input). Rule 1 cannot see a secret inside a file, so such calls get no
+// exemption.
+var ghFileFlags = map[string]bool{"--body-file": true, "--notes-file": true, "--recover": true, "--input": true}
+
+// ghReadsFiles: the call reads a file into what it sends, or builds part of
+// it at run time ($(cat …), "$x", PowerShell (Get-Content …)).
+func ghReadsFiles(args []string) bool {
+	for _, x := range args {
+		if x == "--" {
+			return false
+		}
+		name, _, _ := strings.Cut(x, "=")
+		if ghFileFlags[name] || strings.ContainsAny(x, "$`") || strings.HasPrefix(x, "(") || strings.HasPrefix(x, "@(") {
+			return true
+		}
+		// -F is --body-file for issue/pr; also inside a cluster (-dF).
+		if len(x) > 1 && x[0] == '-' && x[1] != '-' && strings.ContainsRune(x[1:], 'F') {
+			return true
+		}
+	}
+	return false
+}
+
+// GHRepoPrefix marks a sink target that lists the repositories a gh command
+// may write to, separated by spaces: "OWNER/REPO", "." for the current
+// folder's repository, "@DIR" for the repository in DIR (after a cd in the
+// same command), or "?" when it is not known before run time. The call
+// stays in your repository only if every listed one is yours.
+const GHRepoPrefix = "gh-repo:"
+
+// GHRepoTarget builds the sink target ("" in repos = the current folder).
+func GHRepoTarget(repos []string) string {
+	if len(repos) == 0 {
+		return GHRepoPrefix + "."
+	}
+	out := make([]string, 0, len(repos))
+	for _, r := range repos {
+		switch {
+		case r == "":
+			r = "."
+		case strings.ContainsAny(r, "$`(){} \t"):
+			r = "?" // set at run time, or not a repository name
+		}
+		out = append(out, r)
+	}
+	return GHRepoPrefix + strings.Join(out, " ")
+}
+
+var ghRefRe = regexp.MustCompile(`^[A-Za-z0-9-]+/[A-Za-z0-9_.-]+#[0-9]+$`)
+
+// ghTargetRepos lists every repository the call may write to: each -R
+// value (pflag uses the last, but all must be yours), and each issue or
+// pull request given as a link or as OWNER/REPO#N. A link in a message body
+// is listed too: that costs a false alarm, never a leak.
+// Review findings: a link argument (gh issue comment <url>) and -R inside a
+// cluster (-dR) were missed, and only the first -R was read.
+func ghTargetRepos(args, operands []string) []string {
+	var repos []string
+	for i := 0; i < len(args); i++ {
+		x := args[i]
+		switch {
+		case x == "--":
+			i = len(args)
+		case x == "--repo" || x == "-R":
+			if i+1 < len(args) {
+				repos = append(repos, args[i+1])
+				i++
+			} else {
+				repos = append(repos, "?")
+			}
+		case strings.HasPrefix(x, "--repo="):
+			repos = append(repos, strings.TrimPrefix(x, "--repo="))
+		case len(x) > 1 && x[0] == '-' && x[1] != '-':
+			if j := strings.IndexByte(x, 'R'); j > 0 {
+				if v := x[j+1:]; v != "" {
+					repos = append(repos, v)
+				} else if i+1 < len(args) {
+					repos = append(repos, args[i+1])
+					i++
+				} else {
+					repos = append(repos, "?")
+				}
+			}
+		}
+	}
+	explicit := len(repos) > 0
+	for _, o := range operands {
+		if r, ok := ghRepoOfRef(o); ok {
+			repos = append(repos, r)
+		}
+	}
+	if !explicit {
+		repos = append(repos, "") // gh's default: the current folder's repository
+	}
+	return repos
+}
+
+// ghRepoOfRef reads OWNER/REPO from an issue or pull request link
+// (https://github.com/OWNER/REPO/issues/1) or OWNER/REPO#N. A link to
+// another host gives "?".
+func ghRepoOfRef(s string) (string, bool) {
+	if ghRefRe.MatchString(s) {
+		return s[:strings.IndexByte(s, '#')], true
+	}
+	l := strings.ToLower(s)
+	if !strings.Contains(l, "://") && !strings.Contains(l, "github.com/") {
+		return "", false
+	}
+	if _, rest, ok := strings.Cut(s, "://"); ok {
+		s = rest
+	}
+	host, p, _ := strings.Cut(s, "/")
+	if h := strings.ToLower(host); h != "github.com" && h != "www.github.com" {
+		return "?", true
+	}
+	seg := strings.Split(p, "/")
+	if len(seg) < 2 || seg[0] == "" || seg[1] == "" {
+		return "?", true
+	}
+	return seg[0] + "/" + seg[1], true
 }
 
 // apiMethod returns the upper-case HTTP method of a `gh api` call (default GET).

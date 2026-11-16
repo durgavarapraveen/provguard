@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"bytes"
 	"encoding/json"
 	"errors"
@@ -11,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/durgavarapraveen/provguard/bench"
 	"github.com/durgavarapraveen/provguard/internal/audit"
@@ -327,16 +327,23 @@ func makeRepo(url string) (string, error) {
 }
 
 func decisionOf(out []byte) string {
+	d, _ := hookDecision(out)
+	return d
+}
+
+// hookDecision returns the PreToolUse decision and the message the user sees.
+func hookDecision(out []byte) (decision, message string) {
 	if len(bytes.TrimSpace(out)) == 0 {
-		return ""
+		return "", ""
 	}
 	var v struct {
 		H struct {
 			D string `json:"permissionDecision"`
+			R string `json:"permissionDecisionReason"`
 		} `json:"hookSpecificOutput"`
 	}
 	_ = json.Unmarshal(out, &v)
-	return v.H.D
+	return v.H.D, v.H.R
 }
 
 func writeConfig(home, profile string, extra map[string]any) error {
@@ -370,24 +377,7 @@ func lastRecord(home string) (audit.Record, error) {
 }
 
 func readRecords(home string) ([]audit.Record, error) {
-	files, _ := filepath.Glob(filepath.Join(home, "audit", "*.jsonl"))
-	var out []audit.Record
-	for _, f := range files {
-		fh, err := os.Open(f)
-		if err != nil {
-			return nil, err
-		}
-		sc := bufio.NewScanner(fh)
-		sc.Buffer(make([]byte, 64<<10), 8<<20)
-		for sc.Scan() {
-			var r audit.Record
-			if json.Unmarshal(sc.Bytes(), &r) == nil {
-				out = append(out, r)
-			}
-		}
-		fh.Close()
-	}
-	return out, nil
+	return audit.Read(home, time.Time{}, nil)
 }
 
 func writeJSON(path string, v any) error {

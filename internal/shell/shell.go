@@ -9,6 +9,7 @@ package shell
 import (
 	"path"
 	"regexp"
+	"slices"
 	"strings"
 )
 
@@ -66,7 +67,10 @@ type Analysis struct {
 	// can search them as text.
 	Code []string
 	// Cds holds arguments of cd / Set-Location, for relative-path checks.
-	Cds        []string
+	Cds []string
+	// Assigns counts shell variable assignments; one can change an exported
+	// variable such as PATH or GH_REPO for the commands that follow.
+	Assigns    int
 	ParseError string
 }
 
@@ -79,6 +83,7 @@ func Analyze(cmd string, d Dialect) *Analysis {
 		analyzeBash(a, cmd, 0)
 	}
 	a.finish()
+	a.scopeGHTargets()
 	return a
 }
 
@@ -88,11 +93,12 @@ func Analyze(cmd string, d Dialect) *Analysis {
 func AnalyzeUnknown(cmd string) *Analysis {
 	b, p := Analyze(cmd, Bash), Analyze(cmd, PowerShell)
 	m := &Analysis{
-		Cmds:   append(b.Cmds, p.Cmds...),
-		Writes: append(b.Writes, p.Writes...),
-		Sinks:  append(b.Sinks, p.Sinks...),
-		Code:   append(b.Code, p.Code...),
-		Cds:    append(b.Cds, p.Cds...),
+		Cmds:    append(b.Cmds, p.Cmds...),
+		Writes:  append(b.Writes, p.Writes...),
+		Sinks:   append(b.Sinks, p.Sinks...),
+		Code:    append(b.Code, p.Code...),
+		Cds:     append(b.Cds, p.Cds...),
+		Assigns: b.Assigns + p.Assigns,
 	}
 	// A bash parse error is expected for PowerShell syntax; keep it only if
 	// the PowerShell reading found nothing either.
@@ -151,6 +157,102 @@ func (a *Analysis) write(p, op string, dynamic bool) {
 	a.Writes = append(a.Writes, Write{Path: p, Op: op, Dynamic: dynamic})
 }
 
+// ghSafeCompanions are commands that may run in the same command line as a
+// gh write to the current folder's repository: they cannot change the
+// folder, the environment, the git remotes or gh's default repository.
+var ghSafeCompanions = set("tail", "head", "grep", "findstr", "sort", "wc", "cat", "echo", "printf", "true",
+	"sleep", "start-sleep", "select-object", "where-object", "foreach-object", "measure-object",
+	"out-null", "out-string", "out-host", "write-output", "write-host", "format-table", "format-list")
+
+// ghSafeGit are git subcommands that leave remotes and config alone.
+var ghSafeGit = set("status", "log", "diff", "show", "add", "commit", "push", "pull", "fetch",
+	"switch", "checkout", "branch", "merge", "rebase", "stash", "rev-parse", "tag")
+
+// ghUnsafeGH are gh subcommands that change which repository gh uses.
+var ghUnsafeGH = set("repo set-default", "repo clone", "auth login", "auth switch", "config set", "alias set")
+
+// scopeGHTargets resolves "." (the current folder's repository) in gh
+// write targets for the whole command line. Review finding (CRIT): the hook
+// checked the folder as it was before the command ran, so
+// `cd clone-of-attacker && gh issue create …` and
+// `gh repo set-default attacker/x && gh issue create …` passed. "." stays
+// only when nothing else in the line can change the folder, the
+// environment, the remotes or gh's default; one literal cd becomes "@DIR".
+func (a *Analysis) scopeGHTargets() {
+	uses := false
+	for _, s := range a.Sinks {
+		if strings.HasPrefix(s.Target, GHRepoPrefix) && slices.Contains(strings.Fields(s.Target[len(GHRepoPrefix):]), ".") {
+			uses = true
+		}
+	}
+	if !uses {
+		return
+	}
+	cur := a.ghContext()
+	for i, s := range a.Sinks {
+		if !strings.HasPrefix(s.Target, GHRepoPrefix) {
+			continue
+		}
+		f := strings.Fields(s.Target[len(GHRepoPrefix):])
+		for j := range f {
+			if f[j] == "." {
+				f[j] = cur
+			}
+		}
+		a.Sinks[i].Target = GHRepoPrefix + strings.Join(f, " ")
+	}
+}
+
+// ghContext returns ".", "@DIR" or "?" (see scopeGHTargets).
+func (a *Analysis) ghContext() string {
+	if a.Assigns > 0 {
+		return "?" // PATH=… or GH_REPO=… can change which gh runs, or where it writes
+	}
+	cds := 0
+	for _, c := range a.Cmds {
+		if c.Dynamic {
+			return "?"
+		}
+		args := []string{}
+		if len(c.Args) > 1 {
+			args = c.Args[1:]
+		}
+		pos := positional(args)
+		switch {
+		case c.Name == "cd" || c.Name == "set-location" || c.Name == "pushd" || c.Name == "push-location":
+			cds++
+		case c.Name == "gh":
+			if len(pos) >= 2 && ghUnsafeGH[pos[0]+" "+pos[1]] {
+				return "?"
+			}
+		case c.Name == "git":
+			if hasFlag(args, 'c') || hasFlag(args, 'C') || len(pos) == 0 || !ghSafeGit[pos[0]] {
+				return "?"
+			}
+		case !ghSafeCompanions[c.Name]:
+			return "?"
+		}
+	}
+	if len(a.Cds) == 0 {
+		if cds > 0 {
+			return "?" // cd with no argument: the home folder
+		}
+		return "."
+	}
+	dir := a.Cds[0]
+	for _, d := range a.Cds[1:] {
+		if d != dir {
+			return "?"
+		}
+	}
+	// No variables, globs or run-time parts; no spaces (the target list is
+	// space-separated).
+	if dir == "" || dir == "-" || strings.ContainsAny(dir, "$`*?[(){} \t") {
+		return "?"
+	}
+	return "@" + dir
+}
+
 // finish adds PERSIST sinks for writes to persistence locations, and OPAQUE
 // sinks for writes whose target is computed at run time.
 func (a *Analysis) finish() {
@@ -186,6 +288,20 @@ func unknownTarget(p string) bool {
 		}
 	}
 	return false
+}
+
+// knownProgramPath reports whether a program path is computed only from
+// folder variables ($HOME, $env:USERPROFILE, $env:TEMP, …) and ends in a
+// literal file name, so the program is known before it runs. Every check
+// that goes by program name (self-protection, sinks) then applies to it.
+// Found live: & "$env:USERPROFILE\.provguard\bin\provguard.exe" version was
+// read as an unknown command.
+func knownProgramPath(p string) bool {
+	if !strings.Contains(p, "$") || unknownTarget(p) {
+		return false
+	}
+	base := p[strings.LastIndexAny(p, `/\`)+1:]
+	return base != "" && !strings.ContainsAny(base, "$")
 }
 
 func isNullDevice(p string) bool {

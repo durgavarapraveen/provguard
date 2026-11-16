@@ -18,6 +18,7 @@ import (
 	"net"
 	"net/url"
 	"os"
+	"regexp"
 	"path"
 	"strings"
 
@@ -46,6 +47,12 @@ type Input struct {
 	// RemoteTrusted reports whether a git remote (name or URL) belongs to a
 	// trusted owner. nil means "never trusted".
 	RemoteTrusted func(remote string) bool
+
+	// GHRepoTrusted reports whether a gh command's target repository
+	// ("OWNER/REPO", or "." for the current folder's) belongs to a trusted
+	// owner. It may ask GitHub, so it is called only when a rule needs it.
+	// nil means "no repository is trusted".
+	GHRepoTrusted func(repo string) bool
 	// OutgoingDiff returns the commits a git push would send (patch text).
 	// Used only when the session holds secrets. nil means "unknown".
 	OutgoingDiff func() string
@@ -56,12 +63,27 @@ type Result struct {
 	Decision string // what provguard returns to the agent (None in audit mode)
 	Would    string // what balanced/strict would return; set in every profile
 	Rule     string
-	Reason   string
+	Reason   string   // technical: rule, labels and sinks (audit log, explain)
+	Summary  string   // one plain sentence for the user; see Message
+	Hosts    []string // egress hosts the user could add to allowed_hosts
+
+	sinks []shell.Sink
+	dest  string // untrusted_destination: the address from untrusted content
 }
 
 // Evaluate applies the rules and the active profile.
 func Evaluate(in Input) Result {
 	r := evaluate(in)
+	if r.Rule != "" {
+		s := in.Session
+		if s == nil {
+			s = &store.Session{}
+		}
+		r.Summary = summary(r.Rule, s, r.sinks, r.dest)
+		if r.Rule == "secret_in_sink" || r.Rule == "lethal_trifecta" {
+			r.Hosts = safeHosts(r.sinks, s.UntrustedValues)
+		}
+	}
 	switch in.Config.ProfileName() {
 	case config.Audit:
 		r.Decision = None
@@ -109,7 +131,12 @@ func evaluate(in Input) Result {
 		}
 	}
 
-	egress := externalEgress(in)
+	// Rules 2 and 3 need the external egress; work it out only for them,
+	// because the gh repository check can ask GitHub.
+	var egress []shell.Sink
+	if s.Tainted && s.Sensitive || len(s.UntrustedValues) > 0 {
+		egress = externalEgress(in)
+	}
 
 	// 2. Lethal trifecta.
 	if len(egress) > 0 && s.Tainted && s.Sensitive {
@@ -121,8 +148,10 @@ func evaluate(in Input) Result {
 	// 3. Egress to a destination that came from untrusted content.
 	if len(egress) > 0 && len(s.UntrustedValues) > 0 {
 		if v := untrustedDestination(in, egress, s.UntrustedValues); v != "" {
-			return result(Ask, "untrusted_destination", fmt.Sprintf(
+			r := result(Ask, "untrusted_destination", fmt.Sprintf(
 				"this call sends data to %q, which came from untrusted content (%s)", v, firstSource(s.TaintSources)), egress)
+			r.dest = v
+			return r
 		}
 	}
 
@@ -153,7 +182,10 @@ func evaluate(in Input) Result {
 	}
 	var destroy []shell.Sink
 	for _, d := range filter(in.Sinks, shell.Destroy) {
-		if s.Tainted || riskyDestroy(d, in.Cwd) {
+		// The temp-folder exemption holds only in a clean session. Review
+		// finding: a link inside %TEMP% can point anywhere, and untrusted
+		// content can make the agent create one first.
+		if s.Tainted || riskyDestroy(d, in.Cwd) && !tempOnly(d, in.Text) {
 			destroy = append(destroy, d)
 		}
 	}
@@ -172,6 +204,8 @@ func externalEgress(in Input) []shell.Sink {
 			continue // following links: only rule 1 applies
 		case s.Detail == "git_push" && in.RemoteTrusted != nil && in.RemoteTrusted(gitRemote(s.Target)):
 			continue // pushing to your own repository
+		case strings.HasPrefix(s.Target, shell.GHRepoPrefix) && ghAllTrusted(in, strings.TrimPrefix(s.Target, shell.GHRepoPrefix)):
+			continue // a pull request, issue or release in your own repository
 		case isLocal(s.Target) && !in.Config.LocalhostIsExternal:
 			continue // localhost: dev servers, local APIs
 		case allowedTarget(in.Config, s.Target):
@@ -232,9 +266,32 @@ func targetHost(target string) string {
 	return strings.ToLower(t)
 }
 
+// ghEnvRe: gh reads GH_REPO, GH_HOST and other GH_* settings from the
+// environment, and PATH decides which gh runs. Any GH_ text, however it is
+// assembled, or setting an environment variable from PowerShell code, means
+// the call may write elsewhere. (In sh, a quoted or built name is a separate
+// command or an assignment, which shell.scopeGHTargets already refuses.)
+var ghEnvRe = regexp.MustCompile(`(?i)gh_|setenvironmentvariable|env:\s*[a-z_]*\s*=|\$\{env:`)
+
+// ghAllTrusted: every repository a gh call may write to is the user's.
+func ghAllTrusted(in Input, list string) bool {
+	repos := strings.Fields(list)
+	if in.GHRepoTrusted == nil || len(repos) == 0 || ghEnvRe.MatchString(in.Text) {
+		return false
+	}
+	for _, r := range repos {
+		if !in.GHRepoTrusted(r) {
+			return false
+		}
+	}
+	return true
+}
+
+// hasGitPush: the call pushes commits. gh pr create pushes the branch
+// first when it is not on the remote yet.
 func hasGitPush(sinks []shell.Sink) bool {
 	for _, s := range sinks {
-		if strings.HasPrefix(s.Detail, "git_push") {
+		if strings.HasPrefix(s.Detail, "git_push") || s.Detail == "gh_pr_create" {
 			return true
 		}
 	}
@@ -335,6 +392,67 @@ func insideWorkspace(p, cwd string) bool {
 
 // isProjectDir: cwd is known and is neither the home folder (or a parent of
 // it) nor a filesystem root.
+// tempOnly: a recursive delete whose every target is inside the system
+// temp folder, which holds throwaway files. Found live: cleaning up a test
+// folder under %TEMP% asked every time.
+func tempOnly(d shell.Sink, text string) bool {
+	switch d.Detail {
+	case "rm_recursive", "remove_item_recurse", "find_delete":
+	default:
+		return false
+	}
+	if tempRedefined.MatchString(text) {
+		return false // the command points $env:TEMP somewhere else first
+	}
+	targets := strings.Fields(d.Target)
+	if len(targets) == 0 {
+		return false
+	}
+	for _, t := range targets {
+		if !inTemp(t, os.TempDir()) {
+			return false
+		}
+	}
+	return true
+}
+
+// tempVars name the temp folder. Only PowerShell's $env: form is safe: a
+// bare $TEMP or $TMP can be a variable the same command set to any folder
+// (PowerShell names ignore case), and the sink does not say which shell.
+var tempVars = []string{"$env:temp/", "$env:tmp/"}
+
+// tempRedefined finds a command that sets the temp variable itself.
+// Review finding: ${env:TEMP} = … and Set-Item Env:TEMP … were missed, so
+// any mention of env:TEMP other than "$env:TEMP" read as a value counts.
+var tempRedefined = regexp.MustCompile(`(?i)\$env:te?mp\s*=|[^$]env:\\?te?mp\b|\$\{env:te?mp\}|setenvironmentvariable`)
+
+// inTemp: p is strictly inside tempDir, written as a literal path (also the
+// Git Bash form /c/...) or as a temp variable followed by a plain name. No
+// "..", no other variables, no globs: those can leave the folder.
+func inTemp(p, tempDir string) bool {
+	n := strings.ReplaceAll(strings.ToLower(strings.Trim(p, `'"`)), `\`, "/")
+	if strings.Contains(n, "..") || strings.ContainsAny(n, "*?[`") {
+		return false
+	}
+	for _, v := range tempVars {
+		if rest, ok := strings.CutPrefix(n, v); ok {
+			return rest != "" && !strings.ContainsAny(rest, "$")
+		}
+	}
+	if strings.Contains(n, "$") || tempDir == "" {
+		return false
+	}
+	if len(n) > 3 && n[0] == '/' && n[2] == '/' { // Git Bash: /c/users/… → c:/users/…
+		n = n[1:2] + ":" + n[2:]
+	}
+	t := strings.TrimSuffix(strings.ReplaceAll(strings.ToLower(tempDir), `\`, "/"), "/")
+	if t == "" || t == "/" || len(t) == 2 && t[1] == ':' {
+		return false
+	}
+	c := path.Clean(n)
+	return strings.HasPrefix(c, t+"/") && c != t
+}
+
 func isProjectDir(cwd string) bool {
 	c := strings.TrimSuffix(path.Clean(strings.ReplaceAll(strings.ToLower(cwd), `\`, "/")), "/")
 	if c == "" || c == "." || c == "/" || len(c) == 2 && c[1] == ':' { // "", "/", "c:"
@@ -358,7 +476,7 @@ func result(would, rule, why string, sinks []shell.Sink) Result {
 		}
 		ss = append(ss, s.String())
 	}
-	return Result{Would: would, Rule: rule,
+	return Result{Would: would, Rule: rule, sinks: sinks,
 		Reason: "provguard (" + rule + "): " + why + ". Action: " + strings.Join(ss, ", ") + "."}
 }
 

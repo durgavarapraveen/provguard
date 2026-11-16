@@ -131,8 +131,3 @@ func GC(home string, now time.Time) {
 		}
 	}
 }
-
-// Hint is appended to a block reason.
-func Hint(token string) string {
-	return " If you trust this exact call, run in your own terminal: provguard allow " + token + " (one time, within 10 minutes)."
-}
