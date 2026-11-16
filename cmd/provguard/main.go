@@ -11,6 +11,7 @@ import (
 
 	"github.com/durgavarapraveen/provguard/internal/adapter/claudecode"
 	"github.com/durgavarapraveen/provguard/internal/audit"
+	"github.com/durgavarapraveen/provguard/internal/config"
 	"github.com/durgavarapraveen/provguard/internal/install"
 )
 
@@ -27,6 +28,7 @@ Usage:
   provguard init [--settings P] [--yes]      add hooks to Claude Code settings
   provguard uninstall [--settings P] [--yes] remove hooks from Claude Code settings
   provguard explain [session|latest] [--all]  show labels and policy hits of a session
+  provguard doctor [dir] [--json]            check hooks and scan a repo before you open it
   provguard reset [session|latest] [--yes]    clear a session's untrusted label (user only)
   provguard bench [--profiles P] [--cases IDs] [--check] [--out F] [--live --runs N --model M]
                                              run the attack benchmark
@@ -55,6 +57,8 @@ func main() {
 		os.Exit(runReset(os.Args[2:], os.Stdout))
 	case "bench":
 		os.Exit(runBench(os.Args[2:], os.Stdout))
+	case "doctor":
+		os.Exit(runDoctor(os.Args[2:], os.Stdout))
 	case "version", "--version", "-v":
 		fmt.Println("provguard", version)
 	default:
@@ -63,14 +67,24 @@ func main() {
 	}
 }
 
-// runHook always exits 0 (fail open). It prints a decision only to deny;
-// it never prints "allow", because that would skip the user's permission prompts.
+// runHook always exits 0. It prints a decision only to deny or ask; it never
+// prints "allow", because that would skip the user's permission prompts.
+// On an internal error it fails open, except in the strict profile, where a
+// PreToolUse check that could not run is denied (fails closed).
 func runHook(stdin io.Reader, stdout io.Writer, eventArg string) (code int) {
 	start := time.Now()
 	rec := audit.Record{Agent: claudecode.Agent, Event: eventArg, Decision: "none"}
 	defer func() {
 		if p := recover(); p != nil {
 			rec.Error = fmt.Sprintf("panic: %v", p)
+		}
+		if rec.Error != "" && rec.Event == "PreToolUse" && rec.Decision == "none" {
+			if home, err := audit.Home(); err == nil {
+				if cfg, err := config.Load(home); err == nil && cfg.ProfileName() == config.Strict {
+					respond(stdout, &rec, claudecode.Deny, "fail_closed",
+						"provguard (fail_closed): the security check could not run ("+oneLine(rec.Error, 120)+"), and the strict profile blocks calls it cannot check.")
+				}
+			}
 		}
 		rec.Time = start
 		rec.LatencyMicros = time.Since(start).Microseconds()
@@ -104,6 +118,7 @@ func runInstall(args []string, add bool) int {
 	fs := flag.NewFlagSet(name, flag.ContinueOnError)
 	settings := fs.String("settings", "", "settings file (default ~/.claude/settings.json)")
 	yes := fs.Bool("yes", false, "write the change (without it, only show the change)")
+	noCopy := fs.Bool("no-copy", false, "init: run hooks from this binary's location instead of the protected ~/.provguard/bin copy")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -132,9 +147,31 @@ func runInstall(args []string, add bool) int {
 			fmt.Fprintln(os.Stderr, "error: find provguard binary:", err)
 			return 1
 		}
-		if err := install.Add(s, exe, claudecode.Events); err != nil {
+		home, err := audit.Home()
+		if err != nil {
 			fmt.Fprintln(os.Stderr, "error:", err)
 			return 1
+		}
+		cfg, _ := config.Load(home)
+		target := exe
+		if !*noCopy {
+			// Hooks run the copy in ~/.provguard/bin, which agents cannot write.
+			target = filepath.Join(home, "bin", "provguard"+filepath.Ext(exe))
+			if *yes {
+				if target, err = install.CopyBinary(exe, home); err != nil {
+					fmt.Fprintln(os.Stderr, "error: copy binary:", err)
+					return 1
+				}
+				fmt.Println("Installed binary:", target)
+			}
+		}
+		opts := install.Options{FailClosed: cfg.ProfileName() == config.Strict}
+		if err := install.AddWith(s, target, claudecode.Events, opts); err != nil {
+			fmt.Fprintln(os.Stderr, "error:", err)
+			return 1
+		}
+		if opts.FailClosed {
+			fmt.Println("Profile is strict: PreToolUse hook fails closed (onFailure: block).")
 		}
 	} else if install.Remove(s) == 0 {
 		fmt.Println("No provguard hooks found in", path)

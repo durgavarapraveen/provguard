@@ -94,6 +94,40 @@ func TestRemoveRestoresOriginal(t *testing.T) {
 	}
 }
 
+func TestFailClosedOnlyOnPreToolUse(t *testing.T) {
+	s := map[string]any{}
+	if err := AddWith(s, exe, events, Options{FailClosed: true}); err != nil {
+		t.Fatal(err)
+	}
+	h := s["hooks"].(map[string]any)
+	pre := h["PreToolUse"].([]any)[0].(map[string]any)["hooks"].([]any)[0].(map[string]any)
+	post := h["PostToolUse"].([]any)[0].(map[string]any)["hooks"].([]any)[0].(map[string]any)
+	if pre["onFailure"] != "block" || post["onFailure"] != nil {
+		t.Fatalf("onFailure wrong: pre=%v post=%v", pre["onFailure"], post["onFailure"])
+	}
+}
+
+func TestCopyBinaryIntoHome(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "provguard.exe")
+	os.WriteFile(src, []byte("v1"), 0o700)
+	home := filepath.Join(dir, "home")
+	dst, err := CopyBinary(src, home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(dst); string(b) != "v1" || filepath.Dir(dst) != filepath.Join(home, "bin") {
+		t.Fatalf("bad copy %s: %s", dst, b)
+	}
+	os.WriteFile(src, []byte("v2"), 0o700)
+	if _, err := CopyBinary(src, home); err != nil {
+		t.Fatalf("second copy (upgrade): %v", err)
+	}
+	if b, _ := os.ReadFile(dst); string(b) != "v2" {
+		t.Fatalf("upgrade not applied: %s", b)
+	}
+}
+
 func TestAddRefusesNonObjectHooks(t *testing.T) {
 	if err := Add(map[string]any{"hooks": "bad"}, exe, events); err == nil {
 		t.Fatal("expected error")
