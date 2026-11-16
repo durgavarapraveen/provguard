@@ -33,6 +33,10 @@ func TestStringRedactsSecrets(t *testing.T) {
 		{"json assignment", `{"api_key": "abcd1234efgh"}`, "abcd1234efgh"},
 		{"high entropy", "blob " + fakeEntropy, fakeEntropy},
 		{"aws secret with slashes", "aws_secret_access_key = " + fakeAWSSecret, fakeAWSSecret},
+		// Review (MED): no key=value around it; the path exemption leaked it.
+		{"aws secret as cli arg", "aws configure set aws_secret_access_key " + fakeAWSSecret, fakeAWSSecret},
+		{"aws secret piped", "echo " + fakeAWSSecret + " | aws sts", fakeAWSSecret},
+		{"auth token", "AUTH_TOKEN=abcd1234efgh", "abcd1234efgh"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -53,6 +57,8 @@ func TestStringKeepsNormalText(t *testing.T) {
 		"go test ./internal/redact/...",
 		"C:/Users/dev/Projects/provguard/internal/audit/audit.go",
 		"password reset flow is in auth.go", // word without assignment
+		"author: Johnson wrote it",          // review NIT: "author" is not a credential
+		"authors = [\"Ann Lee\"]",
 		// Regression: long temp paths were redacted in the live audit log.
 		"C:/Users/dev/AppData/Local/Temp/claude/6d6f306987e1cd9c/d3f6b33e-8022-4234-9074-e403a9d531cb/scratchpad/pg-del",
 		"/home/dev/.cache/go-build/3f/3f786850e387550fdab836ed7e6dc881de23001b-d",

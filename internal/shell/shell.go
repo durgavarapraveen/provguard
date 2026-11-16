@@ -8,6 +8,7 @@ package shell
 
 import (
 	"path"
+	"regexp"
 	"strings"
 )
 
@@ -143,16 +144,48 @@ func (a *Analysis) write(p, op string, dynamic bool) {
 	if p == "" || isNullDevice(p) {
 		return
 	}
+	// classify() only sees resolved strings, so detect run-time parts from
+	// the text: substitutions, variables, globs (review: cp/mv targets lost
+	// their dynamic flag).
+	dynamic = dynamic || strings.ContainsAny(p, "$*?[`") || strings.Contains(p, "<(")
 	a.Writes = append(a.Writes, Write{Path: p, Op: op, Dynamic: dynamic})
 }
 
-// finish adds PERSIST sinks for writes to persistence locations.
+// finish adds PERSIST sinks for writes to persistence locations, and OPAQUE
+// sinks for writes whose target is computed at run time.
 func (a *Analysis) finish() {
 	for _, w := range a.Writes {
 		if where := PersistPath(w.Path); where != "" {
 			a.sink(Persist, "path:"+where, w.Path)
 		}
+		if w.Dynamic && (w.Op == "write" || w.Op == "append" || w.Op == "link") && unknownTarget(w.Path) {
+			// Review finding: a path built at run time ("$(printf …)") can
+			// name any file, including protected ones.
+			a.sink(Opaque, "dynamic_write", w.Path)
+		}
 	}
+}
+
+var (
+	varRef = regexp.MustCompile(`\$\{?([A-Za-z_][A-Za-z0-9_]*(?::[A-Za-z_][A-Za-z0-9_]*)?)`)
+	// knownDirVars are folder variables that do not let a path point anywhere.
+	knownDirVars = set("home", "userprofile", "temp", "tmp", "tmpdir", "appdata", "localappdata",
+		"pwd", "oldpwd", "programdata", "xdg_cache_home", "xdg_config_home", "xdg_data_home", "runner_temp")
+)
+
+// unknownTarget reports whether a dynamic write path can resolve to an
+// arbitrary location: command substitution, glob, or an unknown variable.
+func unknownTarget(p string) bool {
+	if strings.Contains(p, "$(") || strings.Contains(p, "<(") || strings.Contains(p, "$?") || strings.ContainsAny(p, "*?[`") {
+		return true
+	}
+	for _, m := range varRef.FindAllStringSubmatch(p, -1) {
+		name := strings.ToLower(strings.TrimPrefix(strings.ToLower(m[1]), "env:"))
+		if !knownDirVars[name] {
+			return true
+		}
+	}
+	return false
 }
 
 func isNullDevice(p string) bool {
@@ -183,12 +216,16 @@ var persistBases = map[string]string{
 	".mcp.json": "agent_config", "claude.md": "agent_config", "agents.md": "agent_config",
 	".cursorrules": "agent_config", ".windsurfrules": "agent_config", "authorized_keys": "ssh",
 	".npmrc": "package_config", ".pypirc": "package_config",
+	// review (MED): more files that run commands later
+	"authorized_keys2": "ssh", ".bash_aliases": "shell_rc", ".bash_logout": "shell_rc", ".zlogout": "shell_rc",
+	".envrc": "direnv", ".pre-commit-config.yaml": "git_hooks", "lefthook.yml": "git_hooks",
 }
 
 var persistDirs = []struct{ dir, name string }{
 	{".github/workflows/", "ci"}, {".circleci/", "ci"}, {".git/hooks/", "git_hooks"},
 	{".husky/", "git_hooks"}, {".claude/", "agent_config"}, {".cursor/", "agent_config"},
 	{".vscode/tasks.json", "editor_tasks"}, {".vscode/settings.json", "editor_settings"},
+	{".vscode/launch.json", "editor_tasks"}, {".idea/runConfigurations/", "editor_tasks"},
 	{".ssh/config", "ssh"}, {".config/autostart/", "autostart"}, {"library/launchagents/", "autostart"},
 	{"/etc/", "system"}, {"start menu/programs/startup/", "autostart"}, {".git/config", "git_config"},
 }
@@ -203,7 +240,12 @@ func PersistPath(p string) string {
 		return w
 	}
 	for _, d := range persistDirs {
-		if strings.Contains(n, d.dir) || strings.HasPrefix(n, strings.TrimPrefix(d.dir, "/")) {
+		dir := strings.TrimPrefix(d.dir, "/")
+		if strings.Contains(n, d.dir) || strings.HasPrefix(n, dir) {
+			return d.name
+		}
+		// The folder itself, without a trailing slash: "cp h .git/hooks".
+		if bare := strings.TrimSuffix(dir, "/"); bare != dir && (n == bare || strings.HasSuffix(n, "/"+bare)) {
 			return d.name
 		}
 	}

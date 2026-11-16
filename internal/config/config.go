@@ -35,6 +35,10 @@ type Config struct {
 	// AllowedHosts: fetched content from these hosts is trusted (used from week 4).
 	AllowedHosts []string `json:"allowed_hosts,omitempty"`
 
+	// AuditRetentionDays: daily audit logs older than this are deleted at
+	// session start. 0 = default (30); negative = keep forever.
+	AuditRetentionDays int `json:"audit_retention_days,omitempty"`
+
 	// LocalhostIsExternal treats localhost as a third party. Only the live
 	// benchmark needs it, because its fake attacker runs on 127.0.0.1.
 	LocalhostIsExternal bool `json:"localhost_is_external,omitempty"`
@@ -49,16 +53,33 @@ const (
 	Strict   = "strict"
 )
 
-// ProfileName returns the active profile. Unknown values fall back to audit.
+// ProfileName returns the active profile. An empty profile means audit (the
+// default). Review finding (MED): a typo such as " balanced" or "balancd"
+// used to fall back silently to audit, which blocks nothing; an unknown
+// value now means balanced, and `provguard doctor` reports it.
 func (c Config) ProfileName() string {
-	switch strings.ToLower(c.Profile) {
-	case Balanced:
-		return Balanced
+	switch strings.ToLower(strings.TrimSpace(c.Profile)) {
+	case "", Audit:
+		return Audit
 	case Strict:
 		return Strict
 	}
-	return Audit
+	return Balanced
 }
+
+// ProfileKnown reports whether the configured profile is spelled correctly.
+func (c Config) ProfileKnown() bool {
+	switch strings.ToLower(strings.TrimSpace(c.Profile)) {
+	case "", Audit, Balanced, Strict:
+		return true
+	}
+	return false
+}
+
+// FailSafe is the configuration used when config.json cannot be parsed: the
+// user meant to configure something, so provguard enforces balanced rather
+// than silently doing nothing.
+func FailSafe() Config { return Config{Profile: Balanced} }
 
 // HostAllowed reports whether host is in AllowedHosts or a subdomain of one.
 func (c Config) HostAllowed(host string) bool {
