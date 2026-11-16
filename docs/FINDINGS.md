@@ -108,6 +108,14 @@ Lesson: the audit log is the best test input. Real sessions produced 4 bugs in 1
 - Normal-work corpus (30 tasks, 83 calls): 0 false positives in balanced, 1 intended ask. Attacks: balanced 8 blocked + 4 asked + 0 missed; strict 12/12 blocked.
 - The trusted-owner features need `trusted_repo_owners` in `~/.provguard/config.json`. Without it, behavior is unchanged (safe default), so the user must set it to get the quieter behavior.
 
+### F14. Week 7 hardening — bypasses closed
+1. **Terminal MCP tool bypass (found in review, real tool seen in the audit log):** the desktop app's `mcp__terminal__run_in_terminal` runs shell commands outside the Bash tool, and no shell rule looked at it. MCP tools that run commands are now analyzed as both Bash and PowerShell, for self-protection, labels and policy. Bench case 13.
+2. **Binary replacement:** hooks ran `bin/provguard.exe` in the project, which an agent could overwrite. `provguard init` now copies the binary to `~/.provguard/bin/` (guarded by self-protection) and points hooks there. Bench case 14. `--no-copy` keeps the old behavior; `doctor` reports it.
+3. **`provguard doctor`:** checks that provguard's hooks exist and run an existing, protected binary; scans a repo for `disableAllHooks`, repo hooks, `.mcp.json` servers, and risky text in auto-loaded instruction files (network commands, pipe-to-shell, decode-and-run, injection phrases, hidden comments, invisible characters). It catches the F3 repo before it is opened.
+4. **Fail closed in strict:** an internal error in a PreToolUse check now denies in `strict` (tested). `init` also writes `"onFailure": "block"` for strict. **Not verified live:** the `onFailure` key comes from the docs review (F2), not a live test.
+5. **ConfigChange:** registered; on a settings change, provguard re-checks hook integrity and marks the session untrusted on tampering. **Not verified live:** the event's payload fields are unknown; the check uses only the session's cwd.
+6. **PowerShell here-strings** (`@'…'@`) are parsed as one string.
+
 ## Measurements
 
 ### M1. Hook latency, log-only (Windows 11, go1.27.4, 2026-11-16)
@@ -125,10 +133,17 @@ PowerShell pipes prepend a BOM. The parser rejected it, and the hook failed open
   - Untrusted result (lock + write): p50 5.7 ms, p95 7.3 ms. Most of this is Windows file operations.
 - **Design impact:** process start dominates the total. The 20 ms p95 total budget is not met on a loaded Windows machine whatever provguard does. Options for week 7: a long-running daemon that the hook talks to, or fewer files per write. Track in-process time as the metric that provguard controls.
 
+### M4. Week 7 latency (same machine, lighter load)
+- PreToolUse with shell analysis + policy: p50 16.8 ms, p95 21.8 ms (wall).
+- Process start alone: p50 14.4 ms, p95 17.0 ms. provguard's own work: about 2.4 ms.
+- **Decision:** no background daemon for v0.1. Process start dominates and varies with machine load (14–26 ms seen); a daemon would add complexity and a new attack surface (a long-running process to protect). Revisit if users report slowness.
+
 ## Open — live tests still to run
 - [x] F3: project `disableAllHooks: true` against user-level provguard hooks.
 - [x] F5: canary phrase in `additionalContext` reaches the model.
 - [x] Record real payloads for Bash, PowerShell, Read, Write, Edit, WebFetch, one MCP tool (F7).
 - [ ] F3 follow-up: does the workspace trust dialog show `disableAllHooks` or repo hooks when a repo is first opened?
 - [ ] Headless `claude -p` runs (blocked: CLI login expired on this machine).
+- [ ] `onFailure: "block"` in strict: does a killed or timed-out hook really block the call?
+- [ ] `ConfigChange`: payload fields, and whether it fires for project settings edits.
 - [x] Hook latency p50/p95 over 100 calls (M1). Repeat inside a real Claude Code session.

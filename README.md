@@ -2,7 +2,7 @@
 
 A runtime firewall for AI coding agents. It tracks where context comes from and blocks dangerous tool calls that untrusted content drives.
 
-> **Status: week 6 (false-positive tuning done).** provguard labels what each session reads (untrusted, sensitive), parses every Bash/PowerShell command into sink classes, and applies a policy that can block exfiltration. The default profile is `audit`: it logs what it *would* block and blocks nothing except attempts to turn provguard off.
+> **Status: week 7 (hardening done).** provguard labels what each session reads (untrusted, sensitive), parses every Bash/PowerShell command into sink classes, and applies a policy that can block exfiltration. The default profile is `audit`: it logs what it *would* block and blocks nothing except attempts to turn provguard off.
 
 ## Policy
 
@@ -27,7 +27,7 @@ Profiles, set with `"profile"` in `config.json`:
 
 ## Benchmark
 
-12 attack cases modeled on public incidents, plus 30 normal coding tasks. In replay mode, `balanced` blocks 8 attacks and asks on 4 (none missed), with 0 false positives in 83 normal tool calls. Details, method and caveats: [docs/BENCHMARK.md](docs/BENCHMARK.md).
+14 attack cases modeled on public incidents and on bypasses of provguard itself, plus 31 normal coding tasks. In replay mode, `balanced` blocks 10 attacks and asks on 4 (none missed), with 0 false positives in 86 normal tool calls. Details, method and caveats: [docs/BENCHMARK.md](docs/BENCHMARK.md).
 
 **Set your trusted repo owners.** Several quiet-by-default behaviors (reads of your own repos, pushes to your own remotes, sessions started in someone else's repo) need this in `~/.provguard/config.json`:
 
@@ -77,7 +77,15 @@ go build -o bin/provguard ./cmd/provguard
 
 ## Install the hooks (Claude Code)
 
-`init` shows the change first. It writes only with `--yes`, and it backs up your settings file.
+`init` shows the change first. It writes only with `--yes`, and it backs up your settings file. It copies the binary to `~/.provguard/bin/` and points the hooks there, so an agent cannot replace the program its hooks run. In the `strict` profile it also makes the PreToolUse hook fail closed.
+
+Before you open a repo you did not write, check it:
+
+```bash
+provguard doctor path/to/repo
+```
+
+`doctor` checks that provguard's hooks are installed and protected, and reports repo settings that turn hooks off, repo hooks, `.mcp.json` servers, and risky text in `CLAUDE.md` / `AGENTS.md` / `.cursorrules`. It exits 1 on a HIGH finding.
 
 ```bash
 bin/provguard init
@@ -148,7 +156,8 @@ Each Bash/PowerShell call's sinks are written to the audit log, e.g. `"sinks": [
 
 - Values known only at run time (environment variables, command output) cannot be resolved. Writes to such paths are blocked only when the command also names protected files; code that provguard cannot read (`eval`, `python -c`, encoded commands) is blocked only when its text names protected files.
 - The PowerShell analysis is a heuristic, not a full parser.
-- The provguard binary itself is not protected from replacement yet (week 7).
+- The binary is protected only when installed by `provguard init` (not with `--no-copy`).
+- `ConfigChange` handling and `onFailure: block` follow the Claude Code docs but are not yet verified live.
 
 ## License
 

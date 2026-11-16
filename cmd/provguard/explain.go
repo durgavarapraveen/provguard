@@ -13,7 +13,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/durgavarapraveen/provguard/internal/adapter/claudecode"
 	"github.com/durgavarapraveen/provguard/internal/audit"
+	"github.com/durgavarapraveen/provguard/internal/doctor"
+	"github.com/durgavarapraveen/provguard/internal/install"
 	"github.com/durgavarapraveen/provguard/internal/store"
 )
 
@@ -168,6 +171,46 @@ func runReset(args []string, w io.Writer) int {
 	}
 	_ = audit.Write(home, audit.Record{Time: time.Now(), Agent: "user", Event: "Reset", SessionID: id, Decision: "none"})
 	fmt.Fprintln(w, "Untrusted label cleared.")
+	return 0
+}
+
+// runDoctor checks hook integrity and scans a repo before you open it.
+func runDoctor(args []string, w io.Writer) int {
+	fs := flag.NewFlagSet("doctor", flag.ContinueOnError)
+	asJSON := fs.Bool("json", false, "print findings as JSON")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	repo := fs.Arg(0)
+	if repo == "" {
+		repo, _ = os.Getwd()
+	}
+	home, err := audit.Home()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
+		return 1
+	}
+	settings, err := install.DefaultSettingsPath()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
+		return 1
+	}
+	f := doctor.Run(doctor.Options{Home: home, UserSettings: settings, Repo: repo, Events: claudecode.Events})
+	if *asJSON {
+		b, _ := json.MarshalIndent(f, "", "  ")
+		fmt.Fprintln(w, string(b))
+	} else {
+		fmt.Fprintf(w, "provguard doctor — %s\n\n", repo)
+		for _, x := range f {
+			fmt.Fprintf(w, "%-7s %-14s %s\n", x.Severity, x.Area, x.Message)
+		}
+		if !doctor.HasHigh(f) {
+			fmt.Fprintln(w, "\nNo HIGH findings.")
+		}
+	}
+	if doctor.HasHigh(f) {
+		return 1
+	}
 	return 0
 }
 
