@@ -13,6 +13,7 @@ import (
 	"github.com/durgavarapraveen/provguard/internal/audit"
 	"github.com/durgavarapraveen/provguard/internal/config"
 	"github.com/durgavarapraveen/provguard/internal/install"
+	"github.com/durgavarapraveen/provguard/internal/store"
 )
 
 // version is set at build time with -ldflags "-X main.version=...".
@@ -78,8 +79,35 @@ func main() {
 
 // runHook always exits 0. It prints a decision only to deny or ask; it never
 // prints "allow", because that would skip the user's permission prompts.
-// On an internal error it fails open, except in the strict profile, where a
-// PreToolUse check that could not run is denied (fails closed).
+// On an internal error it fails open, except where failClosedReason says to
+// deny: the strict profile, and a balanced session that already holds both
+// untrusted content and secrets.
+// failClosedReason says why a PreToolUse call whose check crashed must be
+// denied, or returns "" to fail open. Strict denies everything it cannot
+// check. Review finding (LOW): balanced failed open on every error, so a
+// crash in the check was itself a way through; it now denies once the
+// session is 🔴 (untrusted content and secrets both seen), where a missed
+// check is what the lethal-trifecta rule exists to stop. Audit never denies.
+func failClosedReason(cfg config.Config, home, session string) string {
+	switch cfg.ProfileName() {
+	case config.Strict:
+		return "and the strict profile blocks calls it cannot check"
+	case config.Audit:
+		return ""
+	}
+	if session == "" {
+		return ""
+	}
+	// The store reads JSON written by earlier hooks; never panic in here,
+	// because this runs inside the recover that is already handling one.
+	defer func() { _ = recover() }()
+	s, err := store.Get(home, session)
+	if err != nil || s == nil || !s.Tainted || !s.Sensitive {
+		return ""
+	}
+	return "and this session has read both untrusted content and secrets, so provguard does not let a call it cannot check through"
+}
+
 func runHook(stdin io.Reader, stdout io.Writer, eventArg string) (code int) {
 	start := time.Now()
 	rec := audit.Record{Agent: claudecode.Agent, Event: eventArg, Decision: "none"}
@@ -89,9 +117,11 @@ func runHook(stdin io.Reader, stdout io.Writer, eventArg string) (code int) {
 		}
 		if rec.Error != "" && rec.Event == "PreToolUse" && rec.Decision == "none" {
 			if home, err := audit.Home(); err == nil {
-				if cfg, err := config.Load(home); err == nil && cfg.ProfileName() == config.Strict {
-					respond(stdout, &rec, claudecode.Deny, "fail_closed",
-						"provguard (fail_closed): the security check could not run ("+oneLine(rec.Error, 120)+"), and the strict profile blocks calls it cannot check.")
+				if cfg, err := config.Load(home); err == nil {
+					if why := failClosedReason(cfg, home, rec.SessionID); why != "" {
+						respond(stdout, &rec, claudecode.Deny, "fail_closed",
+							"provguard (fail_closed): the security check could not run ("+oneLine(rec.Error, 120)+"), "+why+".")
+					}
 				}
 			}
 		}
