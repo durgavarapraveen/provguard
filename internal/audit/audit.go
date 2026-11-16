@@ -37,8 +37,13 @@ type Record struct {
 	OutputSHA256 string         `json:"output_sha256,omitempty"`
 	Decision     string         `json:"decision"`
 	Rule         string         `json:"rule,omitempty"`
-	Labels       []string       `json:"labels,omitempty"`
-	Sinks        []string       `json:"sinks,omitempty"` // shell sink classes (PreToolUse Bash/PowerShell)
+	Reason       string         `json:"reason,omitempty"`
+	Profile      string         `json:"profile,omitempty"`
+	// Would is the policy decision under balanced/strict. In audit mode
+	// Decision stays "none" and Would shows what would have happened.
+	Would  string   `json:"would,omitempty"`
+	Labels []string `json:"labels,omitempty"`
+	Sinks  []string `json:"sinks,omitempty"` // shell sink classes (PreToolUse Bash/PowerShell)
 	// Session state after this event (PostToolUse / UserPromptSubmit only).
 	SessionTainted   bool   `json:"session_tainted,omitempty"`
 	SessionSensitive bool   `json:"session_sensitive,omitempty"`

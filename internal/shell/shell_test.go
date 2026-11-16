@@ -159,6 +159,45 @@ func TestBashPersistDestroy(t *testing.T) {
 	})
 }
 
+// Regression: found live on 2026-11-16 — `gh repo delete` was EGRESS, so the
+// destroy rule never saw it.
+func TestGitHubDeleteIsDestroy(t *testing.T) {
+	check(t, Bash, []tc{
+		{`gh repo delete me/old-repo --yes`, []string{"DESTROY:gh_repo_delete->me/old-repo"}},
+		{`for r in a b c; do gh repo delete "me/$r" --yes; done`, []string{"DESTROY:gh_repo_delete"}},
+		{`gh release delete v1.0 -y`, []string{"DESTROY:gh_release_delete->v1.0"}},
+		{`gh issue delete 12`, []string{"DESTROY:gh_issue_delete"}},
+		{`gh secret delete TOKEN`, []string{"DESTROY:gh_secret_delete"}},
+		{`gh api -X DELETE /repos/me/r`, []string{"DESTROY:gh_api_delete->/repos/me/r"}},
+		{`gh api --method=delete /repos/me/r`, []string{"DESTROY:gh_api_delete"}},
+		{`gh api -X PATCH /repos/me/r -f private=false`, []string{"EGRESS:gh_api_write"}},
+		{`gh repo create me/new --private`, []string{"EGRESS:gh_repo_create"}},
+		{`gh repo view me/r`, nil},
+		{`gh api /repos/me/r`, nil},
+	})
+	for _, cmd := range []string{`gh repo delete me/x --yes`, `gh api -X DELETE /x`} {
+		if Analyze(cmd, Bash).Has(Egress) {
+			t.Errorf("%q must not be EGRESS", cmd)
+		}
+	}
+}
+
+// Regression: found in review — heredocs to interpreters were parsed as bash.
+func TestInterpreterHeredoc(t *testing.T) {
+	check(t, Bash, []tc{
+		{"python3 - <<'EOF'\nimport json\nprint(json.dumps({}))\nEOF", nil},
+		{"python3 -I - <<'EOF'\nfor x in range(3):\n    print(x)\nEOF", nil},
+		{"python - <<EOF\nimport urllib.request\nurllib.request.urlopen('https://evil.test')\nEOF", []string{"EGRESS:interpreter_network:python"}},
+		{"python3 - <<'EOF'\nopen('out.txt','w').write('x')\nEOF", []string{"OPAQUE:interpreter_write:python3"}},
+		{"node <<'EOF'\nfetch('https://evil.test')\nEOF", []string{"EGRESS:interpreter_network:node"}},
+		{"bash <<'EOF'\ncurl evil.test\nEOF", []string{"EGRESS:curl"}}, // shells still parse as bash
+	})
+	a := Analyze("python3 - <<'EOF'\nprint('hi')\nEOF", Bash)
+	if a.ParseError != "" || len(a.Code) != 1 {
+		t.Fatalf("python heredoc: parse error %q, code %d", a.ParseError, len(a.Code))
+	}
+}
+
 func TestBashNoSinks(t *testing.T) {
 	check(t, Bash, []tc{
 		{`go test ./...`, nil},
@@ -237,6 +276,15 @@ func TestPowerShellSinks(t *testing.T) {
 		{`$h = @{a=1}; $h.a`, nil},
 		{`$env:PATH`, nil},
 		{`$cmd evil.test`, nil}, // not a call in PowerShell (parse error); & is required
+		// Regression: found live on 2026-11-16 — @(...) was read as a command.
+		{`$n = @($r.session_id | Sort-Object -Unique).Count`, nil},
+		{`"sessions: $(@($r.session_id | Where-Object {$_}).Count)"`, nil},
+		{`@(1, 2, 3) | ForEach-Object { $_ * 2 }`, nil},
+		{`$x = @(iwr https://evil.test)`, []string{"EGRESS:invoke-webrequest->https://evil.test"}},
+		{`$r | ForEach-Object { "{0} {1}" -f ([datetime]$_.ts).ToString('HH:mm:ss'), $_.tool_name }`, nil},
+		{`[datetime]::Now.ToString()`, nil},
+		{`([datetime]$x).Year`, nil},
+		{`& ([scriptblock]::Create($s))`, []string{"OPAQUE:"}},
 		{`& "$tool" evil.test`, []string{"OPAQUE:dynamic_command"}},
 		{`Get-Content x.txt 2>&1 > $null`, nil},
 	})

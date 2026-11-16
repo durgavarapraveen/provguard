@@ -138,7 +138,7 @@ var protectedText = regexp.MustCompile(`(?i)disableAllHooks|allowManagedHooksOnl
 func checkShell(an *shell.Analysis, raw, home string) Verdict {
 	for _, c := range an.Cmds {
 		if c.Name == "provguard" && len(c.Args) > 1 {
-			if sub := strings.ToLower(c.Args[1]); sub == "init" || sub == "uninstall" {
+			if sub := strings.ToLower(c.Args[1]); sub == "init" || sub == "uninstall" || sub == "reset" {
 				return deny("self_protect_install", "blocked an agent from running provguard "+sub)
 			}
 		}

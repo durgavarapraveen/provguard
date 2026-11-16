@@ -47,6 +47,8 @@ func TestShell(t *testing.T) {
 		{`eval "echo {} > ~/.claude/settings.json"`, true},
 		{`"C:/tools/provguard.exe" uninstall --yes`, true},
 		{`provguard init --yes`, true},
+		{`provguard reset latest --yes`, true},
+		{`provguard explain latest`, false},
 		{`x=$(cat p.txt); echo hi > "$x" # .claude/settings.json`, true},
 		// allowed: reads and mentions
 		{`cat ~/.claude/settings.json`, false},
