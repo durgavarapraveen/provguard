@@ -30,6 +30,7 @@ Usage:
   provguard explain [session|latest] [--all]  show labels and policy hits of a session
   provguard doctor [dir] [--json]            check hooks and scan a repo before you open it
   provguard demo                             show one normal task and two attacks (safe, temp folder)
+  provguard status [--session ID] [--json]   a session's trust state; use as a Claude Code status line
   provguard reset [session|latest] [--yes]    clear a session's untrusted label (user only)
   provguard bench [--profiles P] [--cases IDs] [--check] [--out F] [--live --runs N --model M]
                                              run the attack benchmark
@@ -62,6 +63,8 @@ func main() {
 		os.Exit(runDoctor(os.Args[2:], os.Stdout))
 	case "demo":
 		os.Exit(runDemo(os.Stdout))
+	case "status":
+		os.Exit(runStatus(os.Args[2:], os.Stdin, os.Stdout))
 	case "version", "--version", "-v":
 		fmt.Println("provguard", version)
 	default:

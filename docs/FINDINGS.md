@@ -124,6 +124,10 @@ Lesson: the audit log is the best test input. Real sessions produced 4 bugs in 1
 - **MED and LOW, also fixed (each with a test):** a slash-containing AWS secret leaked into the audit log through the path exemption (now only strings in path position are exempt); `rm -rf` never asked when cwd was the home folder or a root; a config typo or parse error silently meant "audit" (now balanced, reported by `doctor`); persistence paths (`authorized_keys2`, `.bash_aliases`, `.envrc`, `.pre-commit-config.yaml`, `.vscode/launch.json`, `.git/hooks` without a slash); audit logs are deleted after 30 days (`audit_retention_days`); stale-lock breaking could delete a fresh lock; settings backups are capped at 3; agents can no longer read `~/.provguard/key` or session files; path resolution is cached per hook call (self-protection ~2.7 ms for a multi-write command, was ~3.5 ms).
 - Still open: 2 NITs (hook command quoting, outdated DESIGN.md). `package.json` scripts are deliberately not a persistence path (agents edit it constantly).
 
+### F16. Trust indicator — and a false-positive source it exposed
+- `provguard status` (CLI status line) and a one-time `systemMessage` notice on label changes. The docs confirm `systemMessage` is "shown to the user" but not for which events; the desktop Code tab's support for `statusLine` is undocumented, so a desktop-app mod shows the state there.
+- Live `status` on the author's session showed it **sensitive** from `Edit: secret_in_output:bearer`: editing a test file that holds a fake `Bearer …` token. Fake credentials in test fixtures mark a session sensitive. Possible tuning: ignore token-like strings in files under `testdata/` or `*_test.*`, or in Edit tool output.
+
 ## Measurements
 
 ### M1. Hook latency, log-only (Windows 11, go1.27.4, 2026-11-16)
