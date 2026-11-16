@@ -47,6 +47,7 @@ func (b *bashAn) visit(n syntax.Node) bool {
 }
 
 func (b *bashAn) assign(as *syntax.Assign) {
+	b.a.Assigns++
 	if as == nil || as.Name == nil || as.Value == nil {
 		return
 	}

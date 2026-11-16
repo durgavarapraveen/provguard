@@ -428,8 +428,10 @@ var protectedText = regexp.MustCompile(`(?i)` + strings.Join([]string{
 	`\.claude[\\/]+set[a-z0-9._]*[*?\[]`, // a glob that can expand to a settings file
 	`\.provguard\b`,
 	`\.pro[a-z0-9]*[*?\[]`, // a glob that can expand to .provguard
-	`provguard(?:\.exe)?['"]?\s+(?:uninstall|init|reset|allow)\b`,
-	`provguard(?:\.exe)?['"]?\s+config\s+[a-z]`, // config with a setting changes it
+	// A quoted subcommand or setting counts too (review finding:
+	// `provguard config 'mode' audit` in a script was missed).
+	`provguard(?:\.exe)?['"]?\s+['"]?(?:uninstall|init|reset|allow)\b`,
+	`provguard(?:\.exe)?['"]?\s+['"]?config['"]?\s+['"]?[a-z-]`, // config with a setting changes it
 }, "|"))
 
 // Script scanning limits. Review finding (HIGH): one 1 MiB read of the
@@ -507,6 +509,9 @@ func checkShell(an *shell.Analysis, raw, home, cwd string) Verdict {
 
 // checkSelfCommands blocks agents from running provguard's install/reset
 // commands under any name, and from copying the protected binary out.
+// argFeeders run a command with arguments that come from input at run time.
+var argFeeders = map[string]bool{"xargs": true, "parallel": true, "find": true, "fd": true, "rush": true, "foreach-object": true}
+
 func checkSelfCommands(an *shell.Analysis) Verdict {
 	for _, c := range an.Cmds {
 		if len(c.Args) == 0 {
@@ -525,6 +530,16 @@ func checkSelfCommands(an *shell.Analysis) Verdict {
 					if i+1 < len(args) {
 						return deny("self_protect_install", "blocked an agent from changing provguard settings (provguard config)")
 					}
+				}
+			}
+		}
+		// Tools that add arguments at run time (xargs, parallel, find -exec)
+		// can turn a bare `provguard config` into a change. Review finding:
+		// `echo mode audit | xargs provguard config` changed the settings.
+		if argFeeders[c.Name] {
+			for _, a := range c.Args[1:] {
+				if strings.Contains(strings.ToLower(a), "provguard") {
+					return deny("self_protect_install", "blocked running provguard through "+c.Name+", which adds arguments provguard cannot check")
 				}
 			}
 		}

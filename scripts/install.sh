@@ -4,7 +4,8 @@
 #   curl -fsSL https://raw.githubusercontent.com/durgavarapraveen/provguard/main/scripts/install.sh | sh
 #
 # It downloads the release binary for this machine, checks it against the
-# release's SHA256SUMS, and starts the guided setup (provguard init), which
+# release's SHA256SUMS (this catches a broken download; it cannot catch a
+# compromised release, because both files come from the same place), and starts the guided setup (provguard init), which
 # copies the binary to ~/.provguard/bin and adds the Claude Code hooks.
 #
 # Environment:
@@ -25,7 +26,12 @@ case "$(uname -s)" in
   MINGW* | MSYS* | CYGWIN*) os=windows ;;
   *) fail "unsupported system $(uname -s); build from source: go install github.com/$repo/cmd/provguard@latest" ;;
 esac
-case "$(uname -m)" in
+machine="$(uname -m)"
+# Under Rosetta, an Apple Silicon Mac reports x86_64; use the native build.
+if [ "$os" = darwin ] && [ "$(sysctl -n hw.optional.arm64 2>/dev/null)" = 1 ]; then
+  machine=arm64
+fi
+case "$machine" in
   x86_64 | amd64) arch=amd64 ;;
   arm64 | aarch64) arch=arm64 ;;
   *) fail "unsupported CPU $(uname -m)" ;;
@@ -73,7 +79,8 @@ else
 fi
 
 name="provguard_${version}_${os}_${arch}${ext}"
-want="$(grep " \*\{0,1\}$name\$" "$tmp/SHA256SUMS" | cut -d' ' -f1)"
+# Exact name match (a regex would let "." match any character).
+want="$(awk -v n="$name" '{f=$2; sub(/^\*/, "", f); if (f == n) {print $1; exit}}' "$tmp/SHA256SUMS")"
 [ -n "$want" ] || fail "$name is not listed in SHA256SUMS"
 got="$(sha256 "$tmp/$name")"
 [ "$want" = "$got" ] || fail "checksum mismatch for $name (expected $want, got $got); nothing installed"
@@ -89,8 +96,9 @@ if [ "${PROVGUARD_NO_INIT:-}" = 1 ]; then
 fi
 
 # The setup asks questions. When this script is piped into sh, stdin is the
-# script itself, so read the answers from the terminal.
-if [ -r /dev/tty ]; then
+# script itself, so read the answers from the terminal. In a container or CI
+# job /dev/tty can exist without a terminal behind it, so try to open it.
+if (exec </dev/tty) 2>/dev/null; then
   "$bin" init </dev/tty
 else
   "$bin" init --yes

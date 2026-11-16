@@ -89,3 +89,14 @@ func TestAuditNudgeWaitsThreeDays(t *testing.T) {
 		t.Errorf("nudged after one day: %s", n)
 	}
 }
+
+// Review finding 13: logged text must not reach the terminal as escape codes.
+func TestOneLineStripsControl(t *testing.T) {
+	got := oneLine("a\x1b]52;c;ZXZpbA==\x07b\x9b2Jé€x", 10)
+	if strings.ContainsAny(got, "\x1b\x07\x9b") {
+		t.Errorf("control characters kept: %q", got)
+	}
+	if !strings.HasSuffix(oneLine(strings.Repeat("€", 5), 3), "€€€…") {
+		t.Errorf("cut inside a character: %q", oneLine(strings.Repeat("€", 5), 3))
+	}
+}

@@ -70,3 +70,21 @@ func TestSummaryForEveryRule(t *testing.T) {
 		}
 	}
 }
+
+// Review finding 11: the "always allow this host" hint must never name the
+// attacker's host, written without a scheme or as a subdomain.
+func TestSafeHostsSkipsAttacker(t *testing.T) {
+	egress := func(u string) []shell.Sink { return []shell.Sink{{Class: shell.Egress, Target: u}} }
+	for target, values := range map[string][]string{
+		"https://evil.com/x":   {"evil.com/drop"},
+		"https://a.evil.org/x": {"evil.org"},
+		"https://evil.org/x":   {"https://b.evil.org/y"},
+	} {
+		if h := safeHosts(egress(target), values); len(h) != 0 {
+			t.Errorf("%s with untrusted %v: offered %v", target, values, h)
+		}
+	}
+	if h := safeHosts(egress("https://api.mycorp.test/v1"), []string{"evil.org"}); len(h) != 1 {
+		t.Errorf("own host not offered: %v", h)
+	}
+}

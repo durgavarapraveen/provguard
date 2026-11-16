@@ -58,15 +58,14 @@ func TestGHRepoTrusted(t *testing.T) {
 		{"fork of own org's repo", gitRepo(t, mine, ""), "", fakeView(repoInfo{owner: "me", parent: "my-org"}, nil), ".", true},
 		{"GitHub says another owner", gitRepo(t, mine, ""), "", fakeView(repoInfo{owner: "stranger"}, nil), ".", false},
 		{"gh fails", gitRepo(t, mine, ""), "", fakeView(repoInfo{}, errors.New("offline")), ".", false},
-		{"GH_REPO in command", gitRepo(t, mine, ""), "GH_REPO=stranger/app gh pr create", ok, ".", false},
 	}
 	for _, c := range cases {
-		f := ghRepoTrusted(cfg, c.dir, c.command, c.view)
+		f := ghRepoTrusted(cfg, c.dir, c.view)
 		if got := f != nil && f(c.repo); got != c.want {
 			t.Errorf("%s: got %v, want %v", c.name, got, c.want)
 		}
 	}
-	if ghRepoTrusted(config.Config{}, t.TempDir(), "", ok) != nil {
+	if ghRepoTrusted(config.Config{}, t.TempDir(), ok) != nil {
 		t.Error("no trusted owners must trust no repository")
 	}
 }

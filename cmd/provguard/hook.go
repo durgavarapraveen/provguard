@@ -112,7 +112,7 @@ func handle(e event.Event, stdout io.Writer, rec *audit.Record) {
 		in := policy.Input{
 			Tool: e.ToolName, Sinks: sinks, Text: text, Session: snap, Key: key, Config: cfg,
 			Cwd: e.Cwd, RemoteTrusted: remoteTrusted(cfg, e.Cwd),
-			GHRepoTrusted: ghRepoTrusted(cfg, e.Cwd, text, ghRepoView),
+			GHRepoTrusted: ghRepoTrusted(cfg, e.Cwd, ghRepoView),
 		}
 		if key != nil && e.Cwd != "" {
 			in.OutgoingDiff = gitOutgoingDiff(e.Cwd)

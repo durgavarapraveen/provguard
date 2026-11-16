@@ -14,6 +14,9 @@ func TestScriptFilesNoExec(t *testing.T) {
 		"bash -o noexec +o noexec x.sh": true,
 		"bash x.sh -n":                  true, // -n after the script is the script's argument
 		"bash -e x.sh":                  true, // errexit, not inline code
+		"bash -eo pipefail x.sh":        true, // -o takes "pipefail"; x.sh is the script
+		"bash -euo pipefail x.sh":       true,
+		"bash -eo noexec x.sh":          false,
 		"bash -eux x.sh":                true,
 		"bash +e x.sh":                  true,
 		"bash -O extglob x.sh":          true,
