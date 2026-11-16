@@ -9,9 +9,9 @@ import (
 	"path/filepath"
 	"time"
 
-	"provguard/internal/adapter/claudecode"
-	"provguard/internal/audit"
-	"provguard/internal/install"
+	"github.com/durgavarapraveen/provguard/internal/adapter/claudecode"
+	"github.com/durgavarapraveen/provguard/internal/audit"
+	"github.com/durgavarapraveen/provguard/internal/install"
 )
 
 // version is set at build time with -ldflags "-X main.version=...".

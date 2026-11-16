@@ -9,8 +9,8 @@ import (
 	"path/filepath"
 	"time"
 
-	"provguard/internal/event"
-	"provguard/internal/redact"
+	"github.com/durgavarapraveen/provguard/internal/event"
+	"github.com/durgavarapraveen/provguard/internal/redact"
 )
 
 // maxString caps each logged string, in runes, after redaction.

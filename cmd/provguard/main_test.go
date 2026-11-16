@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"provguard/internal/audit"
+	"github.com/durgavarapraveen/provguard/internal/audit"
 )
 
 func readLog(t *testing.T, home string) []audit.Record {
