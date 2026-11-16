@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 )
 
 // canonical returns the path that the OS will really open for p.
@@ -16,6 +17,49 @@ import (
 // that already exists (finalPath: GetFinalPathNameByHandle on Windows,
 // EvalSymlinks elsewhere) and appends the rest.
 func canonical(p, cwd string) string {
+	key := p + "\x00" + cwd
+	canonMu.Lock()
+	if v, ok := canonCache[key]; ok {
+		canonMu.Unlock()
+		return v
+	}
+	canonMu.Unlock()
+	v := canonicalUncached(p, cwd)
+	canonMu.Lock()
+	canonCache[key] = v
+	canonMu.Unlock()
+	return v
+}
+
+// The cache lives for one hook process (one tool call), so it cannot go
+// stale across calls. Review finding (LOW): the same home/.claude/cwd paths
+// were resolved through the OS many times per call (~4 ms).
+var (
+	canonMu    sync.Mutex
+	canonCache = map[string]string{}
+	finalCache = map[string]string{}
+)
+
+// cachedFinal resolves an existing path once per process. One OS lookup costs
+// about 0.4 ms on Windows; writes under the same folder share it.
+func cachedFinal(p string) (string, error) {
+	canonMu.Lock()
+	v, ok := finalCache[p]
+	canonMu.Unlock()
+	if ok {
+		return v, nil
+	}
+	v, err := finalPath(p)
+	if err != nil {
+		return "", err
+	}
+	canonMu.Lock()
+	finalCache[p] = v
+	canonMu.Unlock()
+	return v, nil
+}
+
+func canonicalUncached(p, cwd string) string {
 	p = strings.TrimSpace(p)
 	if p == "" {
 		return ""
@@ -49,7 +93,7 @@ func canonical(p, cwd string) string {
 		tail = filepath.Join(filepath.Base(existing), tail)
 		existing = parent
 	}
-	real, err := finalPath(existing)
+	real, err := cachedFinal(existing)
 	if err != nil || real == "" {
 		return p
 	}

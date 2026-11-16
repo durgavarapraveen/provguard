@@ -39,6 +39,13 @@ func deny(rule, reason string) Verdict {
 // nil means "analyze here" for Bash/PowerShell.
 func Check(e event.Event, home string, an *shell.Analysis) Verdict {
 	switch e.ToolName {
+	case "Read", "Grep", "NotebookRead":
+		for _, k := range []string{"file_path", "path", "notebook_path"} {
+			if p, _ := e.ToolInput[k].(string); p != "" && secretPath(p, home, e.Cwd) {
+				return deny("self_protect_secret", "blocked reading provguard's key or session files ("+p+")")
+			}
+		}
+		return Verdict{}
 	case "Write", "Edit", "MultiEdit", "NotebookEdit":
 		return checkFileTool(e, home)
 	case "Bash", "PowerShell":
@@ -190,6 +197,43 @@ func protectedPath(p, op, home, cwd string, cds []string) string {
 		}
 	}
 	return ""
+}
+
+// listOnly commands show file names, not contents.
+var listOnly = map[string]bool{"ls": true, "dir": true, "get-childitem": true, "gci": true, "tree": true, "stat": true, "test-path": true, "du": true}
+
+// secretPath: provguard's HMAC key or its session files (which hold secret
+// fingerprints and the taint history). Review finding (LOW): agents could
+// read them, because self-protection only blocked writes.
+func secretPath(p, home, cwd string) bool {
+	lp := strings.ToLower(p)
+	if strings.Contains(lp, "://") {
+		return false // URLs
+	}
+	// The OS lookup (canonical) is costly, so run it only for names that can
+	// be the key or a session file: base "key", or a path naming sessions or
+	// provguard. (A junction renamed to something else that points at the
+	// sessions folder is not caught; reading needs no protection as strong as
+	// writing does.)
+	base := path.Base(norm(p))
+	if base != "key" && !strings.Contains(lp, "session") && !strings.Contains(lp, "provguard") {
+		return false
+	}
+	for _, f := range pathForms(p, cwd, nil) {
+		n := path.Clean(norm(f))
+		if strings.Contains(n, ".provguard/key") || strings.Contains(n, ".provguard/sessions") {
+			return true
+		}
+		for _, h := range []string{home, canonical(home, "")} {
+			if h == "" {
+				continue
+			}
+			if underDir(f, filepath.Join(h, "key")) || underDir(f, filepath.Join(h, "sessions")) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func cdIntoClaude(cds []string) bool {
@@ -366,6 +410,19 @@ const maxScript = 1 << 20
 func checkShell(an *shell.Analysis, raw, home, cwd string) Verdict {
 	if v := checkSelfCommands(an); v.Deny {
 		return v
+	}
+	for _, c := range an.Cmds {
+		if listOnly[c.Name] {
+			continue // listing names (ls ~/.provguard/sessions) reveals no contents
+		}
+		for _, a := range c.Args[min(1, len(c.Args)):] {
+			// Paths hide inside option values: curl -F f=@path, --data=@path, a,b
+			for _, part := range strings.FieldsFunc(a, func(r rune) bool { return r == '=' || r == '@' || r == ',' }) {
+				if secretPath(part, home, cwd) {
+					return deny("self_protect_secret", "blocked a command that uses provguard's key or session files ("+a+")")
+				}
+			}
+		}
 	}
 	cds := an.Cds
 	for _, w := range an.Writes {

@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"net"
 	"net/url"
+	"os"
 	"path"
 	"strings"
 
@@ -257,8 +258,13 @@ func riskyDestroy(d shell.Sink, cwd string) bool {
 }
 
 // insideWorkspace: a relative path without ".." or variables, or an absolute
-// path under cwd.
+// path under cwd. Review finding (MED): when cwd is the home folder or a
+// filesystem root there is no project, so nothing counts as inside it
+// ("rm -rf Documents" from ~ never asked).
 func insideWorkspace(p, cwd string) bool {
+	if !isProjectDir(cwd) {
+		return false
+	}
 	n := strings.ReplaceAll(strings.ToLower(p), `\`, "/")
 	if n == "" || n == "." || n == "./" || n == "*" || strings.ContainsAny(n, "$~") {
 		return false
@@ -269,6 +275,22 @@ func insideWorkspace(p, cwd string) bool {
 	}
 	c := strings.TrimSuffix(strings.ReplaceAll(strings.ToLower(cwd), `\`, "/"), "/")
 	return c != "" && strings.HasPrefix(path.Clean(n), c+"/")
+}
+
+// isProjectDir: cwd is known and is neither the home folder (or a parent of
+// it) nor a filesystem root.
+func isProjectDir(cwd string) bool {
+	c := strings.TrimSuffix(path.Clean(strings.ReplaceAll(strings.ToLower(cwd), `\`, "/")), "/")
+	if c == "" || c == "." || c == "/" || len(c) == 2 && c[1] == ':' { // "", "/", "c:"
+		return false
+	}
+	if h, err := os.UserHomeDir(); err == nil {
+		hn := strings.TrimSuffix(path.Clean(strings.ReplaceAll(strings.ToLower(h), `\`, "/")), "/")
+		if c == hn || strings.HasPrefix(hn, c+"/") {
+			return false
+		}
+	}
+	return true
 }
 
 func result(would, rule, why string, sinks []shell.Sink) Result {

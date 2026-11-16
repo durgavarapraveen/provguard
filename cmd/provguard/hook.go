@@ -31,7 +31,8 @@ func handle(e event.Event, stdout io.Writer, rec *audit.Record) {
 	}
 	cfg, err := config.Load(home)
 	if err != nil {
-		rec.Error = err.Error() // continue with defaults
+		rec.Error = err.Error() + " (using the balanced profile until it is fixed)"
+		cfg = config.FailSafe()
 	}
 
 	switch e.Kind {
@@ -103,6 +104,11 @@ func handle(e event.Event, stdout io.Writer, rec *audit.Record) {
 		}
 	case event.SessionBeg:
 		store.GC(home)
+		days := cfg.AuditRetentionDays
+		if days == 0 {
+			days = audit.DefaultRetentionDays
+		}
+		audit.GC(home, days, time.Now())
 		if err := untrustedRepoAtStart(home, cfg, e, rec); err != nil {
 			rec.Error = err.Error()
 		}

@@ -36,7 +36,7 @@ func bal() config.Config { return config.Config{Profile: "balanced"} }
 
 func judge(cmd string, s *store.Session, cfg config.Config) Result {
 	a := shell.Analyze(cmd, shell.Bash)
-	return Evaluate(Input{Tool: "Bash", Sinks: a.Sinks, Text: cmd, Session: s, Key: key, Config: cfg})
+	return Evaluate(Input{Tool: "Bash", Sinks: a.Sinks, Text: cmd, Session: s, Key: key, Config: cfg, Cwd: "/work/proj"})
 }
 
 func TestRules(t *testing.T) {
@@ -117,8 +117,14 @@ func TestProfiles(t *testing.T) {
 	if r := judge(cmd, s, config.Config{Profile: "strict"}); r.Decision != Deny || r.Would != Deny {
 		t.Fatalf("strict: %+v", r)
 	}
-	if r := judge(cmd, s, config.Config{Profile: "bogus"}); r.Decision != None {
-		t.Fatal("unknown profile must fall back to audit")
+	// Review (MED): a typo must not silently turn blocking off.
+	for _, p := range []string{"bogus", " balanced", "Balanced", "balancd"} {
+		if r := judge(cmd, s, config.Config{Profile: p}); r.Decision != Ask {
+			t.Fatalf("profile %q: decision %q, want balanced behavior", p, r.Decision)
+		}
+	}
+	if r := judge(cmd, s, config.Config{Profile: " audit "}); r.Decision != None {
+		t.Fatal("audit with spaces must still be audit")
 	}
 }
 
