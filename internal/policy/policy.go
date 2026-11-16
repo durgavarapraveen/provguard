@@ -18,6 +18,7 @@ import (
 	"net"
 	"net/url"
 	"os"
+	"regexp"
 	"path"
 	"strings"
 
@@ -181,7 +182,7 @@ func evaluate(in Input) Result {
 	}
 	var destroy []shell.Sink
 	for _, d := range filter(in.Sinks, shell.Destroy) {
-		if s.Tainted || riskyDestroy(d, in.Cwd) {
+		if (s.Tainted || riskyDestroy(d, in.Cwd)) && !tempOnly(d, in.Text) {
 			destroy = append(destroy, d)
 		}
 	}
@@ -366,6 +367,65 @@ func insideWorkspace(p, cwd string) bool {
 
 // isProjectDir: cwd is known and is neither the home folder (or a parent of
 // it) nor a filesystem root.
+// tempOnly: a recursive delete whose every target is inside the system
+// temp folder, which holds throwaway files. Found live: cleaning up a test
+// folder under %TEMP% asked every time.
+func tempOnly(d shell.Sink, text string) bool {
+	switch d.Detail {
+	case "rm_recursive", "remove_item_recurse", "find_delete":
+	default:
+		return false
+	}
+	if tempRedefined.MatchString(text) {
+		return false // the command points $env:TEMP somewhere else first
+	}
+	targets := strings.Fields(d.Target)
+	if len(targets) == 0 {
+		return false
+	}
+	for _, t := range targets {
+		if !inTemp(t, os.TempDir()) {
+			return false
+		}
+	}
+	return true
+}
+
+// tempVars name the temp folder. Only PowerShell's $env: form is safe: a
+// bare $TEMP or $TMP can be a variable the same command set to any folder
+// (PowerShell names ignore case), and the sink does not say which shell.
+var tempVars = []string{"$env:temp/", "$env:tmp/"}
+
+// tempRedefined finds a command that sets the temp variable itself.
+var tempRedefined = regexp.MustCompile(`(?i)\$env:te?mp\s*=|env:\\?te?mp\b.*-value|setenvironmentvariable\(\s*['"]te?mp`)
+
+// inTemp: p is strictly inside tempDir, written as a literal path (also the
+// Git Bash form /c/...) or as a temp variable followed by a plain name. No
+// "..", no other variables, no globs: those can leave the folder.
+func inTemp(p, tempDir string) bool {
+	n := strings.ReplaceAll(strings.ToLower(strings.Trim(p, `'"`)), `\`, "/")
+	if strings.Contains(n, "..") || strings.ContainsAny(n, "*?[`") {
+		return false
+	}
+	for _, v := range tempVars {
+		if rest, ok := strings.CutPrefix(n, v); ok {
+			return rest != "" && !strings.ContainsAny(rest, "$")
+		}
+	}
+	if strings.Contains(n, "$") || tempDir == "" {
+		return false
+	}
+	if len(n) > 3 && n[0] == '/' && n[2] == '/' { // Git Bash: /c/users/… → c:/users/…
+		n = n[1:2] + ":" + n[2:]
+	}
+	t := strings.TrimSuffix(strings.ReplaceAll(strings.ToLower(tempDir), `\`, "/"), "/")
+	if t == "" || t == "/" || len(t) == 2 && t[1] == ':' {
+		return false
+	}
+	c := path.Clean(n)
+	return strings.HasPrefix(c, t+"/") && c != t
+}
+
 func isProjectDir(cwd string) bool {
 	c := strings.TrimSuffix(path.Clean(strings.ReplaceAll(strings.ToLower(cwd), `\`, "/")), "/")
 	if c == "" || c == "." || c == "/" || len(c) == 2 && c[1] == ':' { // "", "/", "c:"

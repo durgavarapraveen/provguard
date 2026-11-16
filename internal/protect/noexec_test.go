@@ -29,3 +29,15 @@ func TestSyntaxCheckOfProtectedScript(t *testing.T) {
 		}
 	}
 }
+
+// A program named through folder variables is now a known program, so the
+// self-protection checks by name must catch it.
+func TestKnownProgramPathStillProtected(t *testing.T) {
+	for cmd, tool := range map[string]string{
+		`& "$env:USERPROFILE\.provguard\bin\provguard.exe" uninstall --yes`: "PowerShell",
+		`& "$env:TEMP\provguard.exe" config mode audit`:                     "PowerShell",
+		`"$HOME/.provguard/bin/provguard" allow 0123456789`:                 "Bash",
+	} {
+		mustDeny(t, cmd, Check(preIn(tool, t.TempDir(), map[string]any{"command": cmd}), "/home/u/.provguard", nil))
+	}
+}

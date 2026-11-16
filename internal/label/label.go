@@ -149,7 +149,11 @@ func Post(e event.Event, env Env) Result {
 	}
 
 	// Secrets: all patterns for known-sensitive content, strong patterns elsewhere.
-	r.Secrets = redact.Find(text, r.Sensitive)
+	// Test fixtures hold fake tokens on purpose (finding F16), so a token
+	// found while reading or editing one file of tests does not count.
+	if r.Sensitive || !testFixture(e) {
+		r.Secrets = redact.Find(text, r.Sensitive)
+	}
 	if !r.Sensitive && len(r.Secrets) > 0 {
 		r.sensitive("secret_in_output:" + r.Secrets[0].Kind)
 	}
@@ -157,6 +161,35 @@ func Post(e event.Event, env Env) Result {
 		r.Values = Values(text)
 	}
 	return r
+}
+
+// fileTools read or change exactly one file, named by file_path.
+var fileTools = map[string]bool{"Read": true, "Edit": true, "MultiEdit": true, "Write": true, "NotebookEdit": true}
+
+// testFixture: a one-file tool on a test file or a file under a test-data
+// folder. A path that is sensitive by name (.env, keys) never qualifies.
+func testFixture(e event.Event) bool {
+	if !fileTools[e.ToolName] {
+		return false
+	}
+	p := str(e.ToolInput, "file_path")
+	if p == "" {
+		p = str(e.ToolInput, "notebook_path")
+	}
+	if p == "" || SensitivePath(p) {
+		return false
+	}
+	n := norm(p)
+	base := path.Base(n)
+	for _, dir := range strings.Split(path.Dir(n), "/") {
+		switch dir {
+		case "testdata", "fixtures", "__fixtures__", "__tests__", "__mocks__":
+			return true
+		}
+	}
+	stem := strings.TrimSuffix(base, path.Ext(base))
+	return strings.HasSuffix(stem, "_test") || strings.HasPrefix(stem, "test_") ||
+		strings.HasSuffix(stem, ".test") || strings.HasSuffix(stem, ".spec")
 }
 
 // Prompt labels a UserPromptSubmit event. The prompt is trusted, but a
