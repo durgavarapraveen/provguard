@@ -10,6 +10,8 @@ import (
 	"strings"
 
 	"github.com/durgavarapraveen/provguard/bench"
+	"github.com/durgavarapraveen/provguard/internal/policy"
+	"github.com/durgavarapraveen/provguard/internal/store"
 )
 
 // runDemo plays one normal task and two attacks through the real hook, in a
@@ -45,7 +47,7 @@ func runDemo(w io.Writer) int {
 			return 1
 		}
 	}
-	fmt.Fprintln(w, "\nRun `provguard bench` for all 14 attacks and 31 normal tasks.")
+	fmt.Fprintf(w, "\nRun `provguard bench` for all %d attacks and %d normal tasks.\n", len(attacks), len(benign))
 	return 0
 }
 
@@ -102,20 +104,27 @@ func demoCase(w io.Writer, c bench.Case) error {
 		case "PostToolUse":
 			result := "trusted"
 			if len(rec.Labels) > 0 {
-				result = strings.Join(rec.Labels, ", ")
+				var ls []string
+				for _, l := range rec.Labels {
+					kind, why, _ := strings.Cut(l, ":") // "untrusted:web_fetch"
+					ls = append(ls, kind+" ("+policy.SourceText(store.Source{Reason: why})+")")
+				}
+				result = strings.Join(ls, ", ")
 			}
 			fmt.Fprintf(w, "   read   %-10s %-60s → %s\n", s.Tool, call, result)
 		case "PreToolUse":
-			d := decisionOf(out.Bytes())
-			switch d {
-			case "deny":
-				fmt.Fprintf(w, "   run    %-10s %-60s → BLOCKED\n", s.Tool, call)
-				fmt.Fprintf(w, "          %s\n", oneLine(rec.Reason, 200))
-			case "ask":
-				fmt.Fprintf(w, "   run    %-10s %-60s → ASKS YOU\n", s.Tool, call)
-				fmt.Fprintf(w, "          %s\n", oneLine(rec.Reason, 200))
-			default:
+			d, msg := hookDecision(out.Bytes())
+			outcome := map[string]string{"deny": "BLOCKED", "ask": "ASKS YOU"}[d]
+			if outcome == "" {
 				fmt.Fprintf(w, "   run    %-10s %-60s → allowed\n", s.Tool, call)
+				continue
+			}
+			fmt.Fprintf(w, "   run    %-10s %-60s → %s\n", s.Tool, call, outcome)
+			// What the user sees, minus the note addressed to the agent.
+			for _, l := range strings.Split(msg, "\n") {
+				if !strings.HasPrefix(l, "Agent:") {
+					fmt.Fprintf(w, "          %s\n", oneLine(strings.ReplaceAll(l, v.Repo, "repo"), 200))
+				}
 			}
 		}
 	}
