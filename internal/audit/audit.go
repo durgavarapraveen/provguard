@@ -42,7 +42,10 @@ type Record struct {
 	Profile      string         `json:"profile,omitempty"`
 	// Would is the policy decision under balanced/strict. In audit mode
 	// Decision stays "none" and Would shows what would have happened.
-	Would  string   `json:"would,omitempty"`
+	Would string `json:"would,omitempty"`
+	// Notice is the one-time message shown to the user when the session's
+	// labels changed (Claude Code systemMessage).
+	Notice string   `json:"notice,omitempty"`
 	Labels []string `json:"labels,omitempty"`
 	Sinks  []string `json:"sinks,omitempty"` // shell sink classes (PreToolUse Bash/PowerShell)
 	// Session state after this event (PostToolUse / UserPromptSubmit only).

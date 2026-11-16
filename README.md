@@ -86,6 +86,21 @@ provguard starts in the **`audit` profile**: it logs what it *would* block and b
 | `balanced` | The table above. |
 | `strict` | Every "ask" becomes "deny", and checks that cannot run fail closed. |
 
+## Seeing a session's trust state
+
+| Where | How |
+|---|---|
+| Everywhere hooks run | A one-time notice when a session becomes untrusted or sensitive (Claude Code `systemMessage`) |
+| Claude Code CLI | A colored status line: 🟢 clean · 🟡 untrusted · 🟠 sensitive · 🔴 both, plus the profile |
+| Any terminal | `provguard status` (`--json` for scripts, `--plain` without colors) |
+| Claude desktop app | The `provguard-badge` mod: a colored band above the prompt, a status entry, and a toast on each change |
+
+Status line: add this to `~/.claude/settings.json` yourself (provguard blocks agents from editing `statusLine`, because it runs a command):
+
+```json
+"statusLine": { "type": "command", "command": "\"C:/Users/you/.provguard/bin/provguard.exe\" status" }
+```
+
 ## Benchmark
 
 14 attack cases modeled on public incidents and on bypasses of provguard itself, and 31 normal coding tasks, replayed through the real hook:

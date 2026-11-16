@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"os/exec"
 	"strings"
@@ -22,8 +23,15 @@ import (
 )
 
 // handle runs the per-event logic and fills rec. Errors go to rec.Error;
-// they never block the agent.
+// they never block the agent. A non-PreToolUse event whose labels changed
+// prints a one-time notice for the user (Claude Code's "systemMessage").
 func handle(e event.Event, stdout io.Writer, rec *audit.Record) {
+	defer func() {
+		if rec.Notice != "" && e.Kind != event.PreTool {
+			b, _ := json.Marshal(map[string]string{"systemMessage": rec.Notice})
+			stdout.Write(b)
+		}
+	}()
 	home, err := audit.Home()
 	if err != nil {
 		rec.Error = err.Error()
@@ -139,6 +147,7 @@ func configChanged(home string, e event.Event, rec *audit.Record) error {
 		return nil
 	}
 	rec.Rule, rec.Labels = "config_tamper", problems
+	rec.Notice = "provguard: hook settings changed during this session (" + strings.Join(problems, "; ") + "). The session is now marked untrusted."
 	return store.Update(home, e.SessionID, func(s *store.Session) error {
 		now := time.Now().UTC()
 		s.MarkTainted(store.Source{At: now, Tool: "ConfigChange", Reason: "config_tamper"})
@@ -171,6 +180,30 @@ func gitOutgoingDiff(cwd string) func() string {
 		out, _ := run("-n", "20")
 		return out
 	}
+}
+
+// transitionNotice describes a session that just became untrusted or
+// sensitive, or returns "" when nothing new happened.
+func transitionNotice(wasT, wasS bool, s *store.Session) string {
+	reason := func(src []store.Source) string {
+		if len(src) == 0 {
+			return "unknown"
+		}
+		return src[len(src)-1].Tool + ": " + src[len(src)-1].Reason
+	}
+	switch {
+	case s.Tainted && s.Sensitive && (!wasT || !wasS):
+		last := reason(s.SensitiveSources)
+		if !wasT {
+			last = reason(s.TaintSources)
+		}
+		return "provguard: 🔴 this session has now read untrusted content AND secrets. Sending data out is blocked (balanced/strict). Last: " + last
+	case s.Tainted && !wasT:
+		return "provguard: 🟡 this session is now UNTRUSTED (" + reason(s.TaintSources) + "). Risky actions will ask first."
+	case s.Sensitive && !wasS:
+		return "provguard: 🟠 this session has now seen SECRETS (" + reason(s.SensitiveSources) + ")."
+	}
+	return ""
 }
 
 // remoteTrusted returns a lookup: does a git remote (name or URL) of the repo
@@ -209,6 +242,8 @@ func untrustedRepoAtStart(home string, cfg config.Config, e event.Event, rec *au
 	reason := "repo_owner_at_start:" + owner
 	rec.Labels = []string{"untrusted:" + reason}
 	return store.Update(home, e.SessionID, func(s *store.Session) error {
+		wasT, wasS := s.Tainted, s.Sensitive
+		defer func() { rec.Notice = transitionNotice(wasT, wasS, s) }()
 		now := time.Now().UTC()
 		s.MarkTainted(store.Source{At: now, Tool: "SessionStart", Reason: reason})
 		s.AddStep(store.Step{At: now, Event: e.RawEvent, Labels: rec.Labels})
@@ -263,6 +298,8 @@ func applyLabels(home string, cfg config.Config, e event.Event, rec *audit.Recor
 		key, keyErr = fingerprint.LoadOrCreate(home)
 	}
 	return store.Update(home, e.SessionID, func(s *store.Session) error {
+		wasT, wasS := s.Tainted, s.Sensitive
+		defer func() { rec.Notice = transitionNotice(wasT, wasS, s) }()
 		for k, v := range snap.RepoOwners {
 			if s.RepoOwners == nil {
 				s.RepoOwners = map[string]string{}
