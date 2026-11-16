@@ -122,11 +122,12 @@ func psStatement(a *Analysis, toks []psTok, depth int) string {
 		words, callOp = words[1:], true
 	}
 	first := words[0]
-	if strings.HasPrefix(first.s, "(") && !first.quote && !callOp {
-		return "" // grouping expression; its inside was analyzed by the tokenizer
-	}
-	if strings.HasPrefix(first.s, "$") && !first.quote && !callOp {
-		return "" // expression or assignment; PowerShell runs a variable only with & or .
+	// Without & or ., PowerShell never runs a computed name: a statement that
+	// starts with $x, "…", (…), @(…) or [type] is an expression. Their insides
+	// were already analyzed by the tokenizer. (Found live: @(…) and
+	// ([datetime]$x) were read as unknown commands.)
+	if !callOp && (first.dyn || first.quote || strings.HasPrefix(first.s, "$") || strings.HasPrefix(first.s, "[")) {
+		return ""
 	}
 	if psKeywords[strings.ToLower(first.s)] {
 		return "" // control flow; its blocks are separate statements
@@ -388,6 +389,14 @@ func psTokenize(a *Analysis, s string, depth int) []psTok {
 			// Grouping expression, e.g. (iwr https://x).Content: analyze inside.
 			end := matchParen(s, i)
 			psSubexpr(a, s[i+1:end], depth)
+			cur.WriteString("(...)")
+			dyn, has = true, true
+			i = end
+		case c == '@' && !has && i+1 < len(s) && s[i+1] == '(':
+			// Array subexpression @(...): an expression, not a command.
+			// Found live: it was read as an unknown command (OPAQUE).
+			end := matchParen(s, i+1)
+			psSubexpr(a, s[i+2:end], depth)
 			cur.WriteString("(...)")
 			dyn, has = true, true
 			i = end

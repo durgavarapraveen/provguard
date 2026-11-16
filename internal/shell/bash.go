@@ -75,11 +75,29 @@ func (b *bashAn) stmt(s *syntax.Stmt) {
 			if r.Op == syntax.WordHdoc {
 				body = r.Word
 			}
-			if body != nil && isShellStdin(s) {
+			if body == nil || !isShellStdin(s) {
+				continue
+			}
+			// A shell reads the heredoc as bash; an interpreter (python -,
+			// node, perl…) reads it as its own code. Found in review: python
+			// heredocs were parsed as bash.
+			if name := stdinProgram(s); interpreters[name] {
+				v, dyn := b.word(body)
+				inlineCode(b.a, name, v, dyn)
+			} else {
 				b.script(body)
 			}
 		}
 	}
+}
+
+// stdinProgram returns the base name of the program that s runs.
+func stdinProgram(s *syntax.Stmt) string {
+	c, ok := s.Cmd.(*syntax.CallExpr)
+	if !ok || len(c.Args) == 0 {
+		return ""
+	}
+	return baseName(c.Args[0].Lit())
 }
 
 // isShellStdin reports whether s runs a shell or interpreter that reads its script from stdin.
