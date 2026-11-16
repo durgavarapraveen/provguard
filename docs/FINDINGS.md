@@ -64,6 +64,15 @@ Recorded from Claude Code 2.1.238 on Windows. Sanitized copies are in `testdata/
 - Bash/PowerShell `tool_response`: `stdout`, `stderr`, `interrupted`, `isImage`. Read: `{type, file{...}}`. Edit and Write include `originalFile` and `structuredPatch`. WebFetch: `{url, code, bytes, result}`.
 - Hooks from user settings run in the desktop app and in headless `claude -p`. Project hooks also ran in `-p` mode.
 
+### F8. Windows lock-file race — found in week 2 tests
+Creating a lock file with `O_EXCL` while another process's delete of it is still pending returns "Access is denied" on Windows, not "file exists". With parallel hooks this happens in real use. The session lock now retries on both errors. Test: `TestConcurrentUpdatesKeepEveryWrite` (50 parallel writers).
+
+### F3 mitigation — live, week 2
+With self-protection on, both attacks were blocked in a live session:
+- Bash: `echo '{"disableAllHooks": true}' > .claude/settings.json` → denied.
+- Write tool, same content → denied.
+The agent sees the reason and is told to ask the user to do it in a terminal.
+
 ## Measurements
 
 ### M1. Hook latency, log-only (Windows 11, go1.27.4, 2026-11-16)
@@ -73,6 +82,13 @@ Recorded from Claude Code 2.1.238 on Windows. Sanitized copies are in `testdata/
 
 ### M2. UTF-8 BOM on stdin — fixed
 PowerShell pipes prepend a BOM. The parser rejected it, and the hook failed open with an error line. The adapter now strips the BOM. Test: `TestParseStripsBOM`.
+
+### M3. Week 2 latency (same machine, later, under more load)
+- Process start alone is about 26 ms p50 now. The week 1 binary measured the same, so the machine is slower than at M1, not the code.
+- provguard's own work, measured in process:
+  - Trusted result (most calls): p50 1.1 ms, p95 1.8 ms. Fast path: unlocked read, no write.
+  - Untrusted result (lock + write): p50 5.7 ms, p95 7.3 ms. Most of this is Windows file operations.
+- **Design impact:** process start dominates the total. The 20 ms p95 total budget is not met on a loaded Windows machine whatever provguard does. Options for week 7: a long-running daemon that the hook talks to, or fewer files per write. Track in-process time as the metric that provguard controls.
 
 ## Open — live tests still to run
 - [x] F3: project `disableAllHooks: true` against user-level provguard hooks.

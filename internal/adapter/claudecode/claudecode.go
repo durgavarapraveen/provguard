@@ -78,6 +78,7 @@ func Parse(raw []byte, eventArg string) (event.Event, error) {
 		AgentID:    p.AgentID,
 		AgentType:  p.AgentType,
 		MCPServer:  p.MCPServer.name(),
+		MCPSource:  p.MCPServer.source(),
 		ToolInput:  p.ToolInput,
 		ToolOutput: p.ToolResponse,
 	}, nil
@@ -88,6 +89,13 @@ func (m *mcpServer) name() string {
 		return ""
 	}
 	return m.Name
+}
+
+func (m *mcpServer) source() string {
+	if m == nil {
+		return ""
+	}
+	return m.Source
 }
 
 // Decision is a PreToolUse permission decision.
