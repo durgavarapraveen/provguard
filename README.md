@@ -2,7 +2,7 @@
 
 A runtime firewall for AI coding agents. It tracks where context comes from and blocks dangerous tool calls that untrusted content drives.
 
-> **Status: week 4.** provguard labels what each session reads (untrusted, sensitive), parses every Bash/PowerShell command into sink classes, and applies a policy that can block exfiltration. The default profile is `audit`: it logs what it *would* block and blocks nothing except attempts to turn provguard off.
+> **Status: week 6 (false-positive tuning done).** provguard labels what each session reads (untrusted, sensitive), parses every Bash/PowerShell command into sink classes, and applies a policy that can block exfiltration. The default profile is `audit`: it logs what it *would* block and blocks nothing except attempts to turn provguard off.
 
 ## Policy
 
@@ -27,7 +27,13 @@ Profiles, set with `"profile"` in `config.json`:
 
 ## Benchmark
 
-12 attack cases modeled on public incidents. In replay mode, `balanced` blocks 8 and asks on 3; one case (instructions in an auto-loaded `CLAUDE.md`) is a known gap. Details and method: [docs/BENCHMARK.md](docs/BENCHMARK.md).
+12 attack cases modeled on public incidents, plus 30 normal coding tasks. In replay mode, `balanced` blocks 8 attacks and asks on 4 (none missed), with 0 false positives in 83 normal tool calls. Details, method and caveats: [docs/BENCHMARK.md](docs/BENCHMARK.md).
+
+**Set your trusted repo owners.** Several quiet-by-default behaviors (reads of your own repos, pushes to your own remotes, sessions started in someone else's repo) need this in `~/.provguard/config.json`:
+
+```json
+{ "trusted_repo_owners": ["your-github-user", "your-org"] }
+```
 
 ```bash
 provguard bench

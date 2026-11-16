@@ -102,6 +102,12 @@ Lesson: the audit log is the best test input. Real sessions produced 4 bugs in 1
 - Case 08 itself stays **missed**: hooks never see auto-loaded `CLAUDE.md` / `AGENTS.md`. See docs/BENCHMARK.md.
 - Replay: balanced blocks 8/12 and asks on 3/12; strict blocks 11/12. Live-agent runs are blocked on the expired CLI login.
 
+### F13. Week 6 false-positive tuning
+- Real data (418 tool calls, 8 sessions, audit mode): 5 would-be decisions; 10 of 13 untrusted labels came from `gh` reads of the user's own repo.
+- 7 tuning changes and 2 new detections (see docs/BENCHMARK.md, "What the week 6 tuning changed").
+- Normal-work corpus (30 tasks, 83 calls): 0 false positives in balanced, 1 intended ask. Attacks: balanced 8 blocked + 4 asked + 0 missed; strict 12/12 blocked.
+- The trusted-owner features need `trusted_repo_owners` in `~/.provguard/config.json`. Without it, behavior is unchanged (safe default), so the user must set it to get the quieter behavior.
+
 ## Measurements
 
 ### M1. Hook latency, log-only (Windows 11, go1.27.4, 2026-11-16)

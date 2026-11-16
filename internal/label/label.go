@@ -74,7 +74,7 @@ func Post(e event.Event, env Env) Result {
 		}
 	case e.ToolName == "Bash" || e.ToolName == "PowerShell":
 		cmd := str(e.ToolInput, "command")
-		if why := fetchCommand(cmd); why != "" {
+		if why := fetchCommand(cmd); why != "" && !trustedGitHubRead(why, cmd, e.Cwd, env) {
 			r.untrusted("shell_fetch:" + why)
 		}
 		if why := secretCommand(cmd); why != "" {
@@ -230,6 +230,32 @@ var fetchRules = []struct {
 	{"netcat", regexp.MustCompile(`(?i)(?:^|[\s;|&(])(?:nc|ncat|netcat|socat)(?:\.exe)?\s`)},
 	{"github_cli", regexp.MustCompile(`(?i)\bgh\s+(?:issue|pr|api|release|run|search|gist|discussion|repo\s+view)\b`)},
 	{"glab_cli", regexp.MustCompile(`(?i)\bglab\s+(?:issue|mr|api)\b`)},
+}
+
+var (
+	ghRepoFlag = regexp.MustCompile(`(?:-R|--repo)[\s=]+["']?([A-Za-z0-9_.-]+)/`)
+	ghURL      = regexp.MustCompile(`(?i)github\.com[/:]([A-Za-z0-9_.-]+)/`)
+	ghAPIRepo  = regexp.MustCompile(`\bgh\s+api\s+["']?/?repos/([A-Za-z0-9_.-]+)/`)
+)
+
+// trustedGitHubRead reports whether a gh/glab read targets a repo whose owner
+// is in trusted_repo_owners. Found live: gh commands on the user's own repo
+// were the main source of untrusted labels (10 of 13).
+func trustedGitHubRead(why, cmd, cwd string, env Env) bool {
+	if why != "github_cli" && why != "glab_cli" || len(env.Config.TrustedRepoOwners) == 0 {
+		return false
+	}
+	owner := ""
+	for _, re := range []*regexp.Regexp{ghRepoFlag, ghAPIRepo, ghURL} {
+		if m := re.FindStringSubmatch(cmd); m != nil {
+			owner = m[1]
+			break
+		}
+	}
+	if owner == "" && cwd != "" && env.RepoOwner != nil {
+		owner = env.RepoOwner(cwd + "/x") // the repo of the working directory
+	}
+	return owner != "" && env.Config.RepoOwnerTrusted(owner)
 }
 
 func fetchCommand(cmd string) string {

