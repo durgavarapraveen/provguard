@@ -392,6 +392,30 @@ func psTokenize(a *Analysis, s string, depth int) []psTok {
 			cur.WriteString("(...)")
 			dyn, has = true, true
 			i = end
+		case c == '@' && !has && i+2 < len(s) && (s[i+1] == '\'' || s[i+1] == '"') && (s[i+2] == '\n' || s[i+2] == '\r'):
+			// Here-string: @'<newline>…<newline>'@ (or @"…"@). The body is
+			// one string, even if it contains quotes or apostrophes.
+			q := s[i+1]
+			start := i + 2
+			if start < len(s) && s[start] == '\r' {
+				start++
+			}
+			if start < len(s) && s[start] == '\n' {
+				start++
+			}
+			end := strings.Index(s[start:], "\n"+string(q)+"@")
+			body := ""
+			if end < 0 {
+				body, i = s[start:], len(s)
+			} else {
+				body, i = s[start:start+end], start+end+2
+			}
+			body = strings.TrimSuffix(body, "\r")
+			cur.WriteString(body)
+			quote, has = true, true
+			if q == '"' && strings.Contains(body, "$") {
+				dyn = true
+			}
 		case c == '@' && !has && i+1 < len(s) && s[i+1] == '(':
 			// Array subexpression @(...): an expression, not a command.
 			// Found live: it was read as an unknown command (OPAQUE).

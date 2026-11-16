@@ -81,6 +81,34 @@ func Analyze(cmd string, d Dialect) *Analysis {
 	return a
 }
 
+// AnalyzeUnknown is for commands whose shell is not known (e.g. an MCP tool
+// that runs a command in the user's terminal). It analyzes the command as
+// Bash and as PowerShell and merges both results, so either reading counts.
+func AnalyzeUnknown(cmd string) *Analysis {
+	b, p := Analyze(cmd, Bash), Analyze(cmd, PowerShell)
+	m := &Analysis{
+		Cmds:   append(b.Cmds, p.Cmds...),
+		Writes: append(b.Writes, p.Writes...),
+		Sinks:  append(b.Sinks, p.Sinks...),
+		Code:   append(b.Code, p.Code...),
+		Cds:    append(b.Cds, p.Cds...),
+	}
+	// A bash parse error is expected for PowerShell syntax; keep it only if
+	// the PowerShell reading found nothing either.
+	if b.ParseError != "" && len(p.Cmds) == 0 {
+		m.ParseError = b.ParseError
+	} else {
+		var keep []Sink
+		for _, s := range m.Sinks {
+			if s.Detail != "parse_error" {
+				keep = append(keep, s)
+			}
+		}
+		m.Sinks = keep
+	}
+	return m
+}
+
 // maxDepth limits nested "bash -c" style re-parsing.
 const maxDepth = 4
 

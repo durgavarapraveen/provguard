@@ -47,6 +47,12 @@ func Check(e event.Event, home string, an *shell.Analysis) Verdict {
 		}
 		return checkShell(an, cmd, home)
 	}
+	// Other tools that carry a shell command (MCP terminal tools): the caller
+	// passes the analysis.
+	if an != nil {
+		cmd, _ := e.ToolInput["command"].(string)
+		return checkShell(an, cmd, home)
+	}
 	return Verdict{}
 }
 

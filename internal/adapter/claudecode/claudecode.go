@@ -15,7 +15,7 @@ import (
 const Agent = "claude-code"
 
 // Events that provguard registers for.
-var Events = []string{"PreToolUse", "PostToolUse", "SessionStart", "UserPromptSubmit"}
+var Events = []string{"PreToolUse", "PostToolUse", "SessionStart", "UserPromptSubmit", "ConfigChange"}
 
 type payload struct {
 	SessionID      string          `json:"session_id"`
