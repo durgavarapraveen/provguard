@@ -294,7 +294,8 @@ func classify(a *Analysis, name string, args []string) {
 	case name == "pip" || name == "pip3" || name == "uv" || name == "pipx" || name == "poetry":
 		for i, p := range pos {
 			if p == "install" || p == "add" || (name == "pipx" && p == "run") {
-				a.sink(ExecRemote, "package_install:"+name, strings.Join(pos[i+1:], " "))
+				// Only named packages count as targets, not -r requirements.txt or -e .
+				a.sink(ExecRemote, "package_install:"+name, strings.Join(namedPackages(args, pos[i+1:]), " "))
 				break
 			}
 			if p == "publish" || p == "upload" {
@@ -430,6 +431,28 @@ func classify(a *Analysis, name string, args []string) {
 	case name == "provguard":
 		// recorded in Cmds; self-protection decides.
 	}
+}
+
+// pipValueFlags take a file, path or URL, not a package name.
+var pipValueFlags = set("-r", "--requirement", "-c", "--constraint", "-e", "--editable",
+	"-f", "--find-links", "-i", "--index-url", "--extra-index-url", "-t", "--target", "--python")
+
+// namedPackages drops values of pipValueFlags and local paths from cands.
+func namedPackages(args, cands []string) []string {
+	skip := map[string]bool{}
+	for i, x := range args {
+		if pipValueFlags[x] && i+1 < len(args) {
+			skip[args[i+1]] = true
+		}
+	}
+	var out []string
+	for _, c := range cands {
+		if skip[c] || c == "." || strings.HasPrefix(c, "./") || strings.HasPrefix(c, "../") {
+			continue
+		}
+		out = append(out, c)
+	}
+	return out
 }
 
 func hasPrefixArg(args []string, p string) bool {

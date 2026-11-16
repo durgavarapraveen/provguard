@@ -14,6 +14,7 @@ var (
 	fakeJWT       = "eyJ" + "hbGciOiJIUzI1NiJ9" + ".eyJzdWIiOiIxMjM0NTY3ODkwIn0" + ".dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U"
 	fakeKeyBlock  = "-----BEGIN RSA " + "PRIVATE KEY-----\nMIIEow\nabc\n-----END RSA " + "PRIVATE KEY-----"
 	fakeEntropy   = "q8Zt3+Lw9/Vb2Nk7Rx4Hm1Pj6Yc0Gs5Ue_Ad-Fo"
+	fakeAWSSecret = "wJalrXUtnFEMI/K7MDENG/bPxRfi" + "CYEXAMPLEKEY"
 )
 
 func TestStringRedactsSecrets(t *testing.T) {
@@ -31,6 +32,7 @@ func TestStringRedactsSecrets(t *testing.T) {
 		{"env assignment", "DB_PASSWORD=sup3rS3cret!", "sup3rS3cret!"},
 		{"json assignment", `{"api_key": "abcd1234efgh"}`, "abcd1234efgh"},
 		{"high entropy", "blob " + fakeEntropy, fakeEntropy},
+		{"aws secret with slashes", "aws_secret_access_key = " + fakeAWSSecret, fakeAWSSecret},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -51,6 +53,9 @@ func TestStringKeepsNormalText(t *testing.T) {
 		"go test ./internal/redact/...",
 		"C:/Users/dev/Projects/provguard/internal/audit/audit.go",
 		"password reset flow is in auth.go", // word without assignment
+		// Regression: long temp paths were redacted in the live audit log.
+		"C:/Users/dev/AppData/Local/Temp/claude/6d6f306987e1cd9c/d3f6b33e-8022-4234-9074-e403a9d531cb/scratchpad/pg-del",
+		"/home/dev/.cache/go-build/3f/3f786850e387550fdab836ed7e6dc881de23001b-d",
 	}
 	for _, s := range keep {
 		if got := String(s); got != s {

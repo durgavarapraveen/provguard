@@ -34,6 +34,10 @@ type Config struct {
 
 	// AllowedHosts: fetched content from these hosts is trusted (used from week 4).
 	AllowedHosts []string `json:"allowed_hosts,omitempty"`
+
+	// LocalhostIsExternal treats localhost as a third party. Only the live
+	// benchmark needs it, because its fake attacker runs on 127.0.0.1.
+	LocalhostIsExternal bool `json:"localhost_is_external,omitempty"`
 }
 
 func (c Config) SelfProtectOn() bool { return c.SelfProtect == nil || *c.SelfProtect }
