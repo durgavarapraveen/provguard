@@ -127,6 +127,7 @@ Lesson: the audit log is the best test input. Real sessions produced 4 bugs in 1
 ### F16. Trust indicator — and a false-positive source it exposed
 - `provguard status` (CLI status line) and a one-time `systemMessage` notice on label changes. The docs confirm `systemMessage` is "shown to the user" but not for which events; the desktop Code tab's support for `statusLine` is undocumented, so a desktop-app mod shows the state there.
 - Live `status` on the author's session showed it **sensitive** from `Edit: secret_in_output:bearer`: editing a test file that holds a fake `Bearer …` token. Fake credentials in test fixtures mark a session sensitive. Possible tuning: ignore token-like strings in files under `testdata/` or `*_test.*`, or in Edit tool output.
+- Fixed: a token found by Read/Edit/Write on one test file (`*_test.*`, `test_*`, `*.test.*`, `*.spec.*`, or under `testdata/`, `fixtures/`, `__tests__/`, `__mocks__/`) no longer marks the session sensitive. Files sensitive by name (`.env`, keys) still do, and so does the same token in shell output. Trade-off: a real token committed to a test file is not tracked.
 
 ## Measurements
 

@@ -17,6 +17,15 @@
 - `provguard review` groups what was stopped, or would have been, and says what to do next. In watch-only mode, provguard suggests a review once after three days.
 - `provguard help`; the help text is grouped for new users.
 
+### Fewer false alarms (found with `provguard review` on a real log)
+- `gh pr create` and other gh writes to your own repository are not counted as data leaving.
+- `sh -n` / `bash -n` (syntax check only) no longer counts as running the script. Also fixes a bypass: `bash -e x.sh` skipped the script scan.
+- `gh … --help` and `git … --help` run nothing and are not counted as deletes or pushes.
+- `sed -i -e 'script' file`: the script is no longer read as a file name.
+- `& "$env:USERPROFILE\…\tool.exe"` and `"$HOME/bin/tool"` name a known program instead of an unknown command; checks by program name, self-protection included, apply to it.
+- Recursive deletes inside the system temp folder do not ask.
+- Fake tokens in test files do not mark a session sensitive (finding F16).
+
 ### Fixed (security audit, Nov 2026)
 - Self-protection: code provguard cannot read (`python -c`, `eval`, a script file) could run `provguard allow <token>` and grant the agent's own blocked call. Script files are now streamed whole in overlapping windows, instead of one capped read of the start, and the pattern covers globbed spellings of `.provguard` and `.claude/settings*.json`.
 - Self-protection: provguard's binary could be copied out of any folder but `~/.provguard/bin` and run under another name. Copies are matched by the binary's own name, and looking its path up (`which provguard`) is blocked.
