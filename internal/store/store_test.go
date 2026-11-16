@@ -109,6 +109,26 @@ func TestStaleLockIsBroken(t *testing.T) {
 	}
 }
 
+// Review (LOW): breaking a stale lock must not delete a fresh one.
+func TestBreakStaleKeepsFreshLock(t *testing.T) {
+	dir := t.TempDir()
+	lk := filepath.Join(dir, "s.json.lock")
+	os.WriteFile(lk, nil, 0o600) // fresh lock, just taken by another hook
+	breakStale(lk)
+	if _, err := os.Stat(lk); err != nil {
+		t.Fatal("fresh lock was removed")
+	}
+	old := time.Now().Add(-time.Minute)
+	os.Chtimes(lk, old, old)
+	breakStale(lk)
+	if _, err := os.Stat(lk); !os.IsNotExist(err) {
+		t.Fatal("stale lock not removed")
+	}
+	if m, _ := filepath.Glob(lk + ".stale-*"); len(m) != 0 {
+		t.Fatalf("leftover files: %v", m)
+	}
+}
+
 func TestGC(t *testing.T) {
 	home := t.TempDir()
 	_ = Update(home, "old", func(*Session) error { return nil })

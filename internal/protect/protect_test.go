@@ -140,8 +140,12 @@ func TestProvguardHome(t *testing.T) {
 	if Check(pre("Write", map[string]any{"file_path": filepath.Join(home+"x", "a"), "content": ""}), home, nil).Deny {
 		t.Fatal("sibling dir with same prefix blocked")
 	}
-	if Check(pre("Read", map[string]any{"file_path": filepath.Join(home, "key")}), home, nil).Deny {
-		t.Fatal("read must not be blocked by self-protection")
+	// Reading config is fine; the key and sessions are secret (review, LOW).
+	if Check(pre("Read", map[string]any{"file_path": filepath.Join(home, "config.json")}), home, nil).Deny {
+		t.Fatal("reading config must not be blocked")
+	}
+	if !Check(pre("Read", map[string]any{"file_path": filepath.Join(home, "key")}), home, nil).Deny {
+		t.Fatal("reading the HMAC key must be blocked")
 	}
 	if !Check(sh("rm -rf "+filepath.ToSlash(home)), home, nil).Deny {
 		t.Fatal("shell delete of custom PROVGUARD_HOME allowed")

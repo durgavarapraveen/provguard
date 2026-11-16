@@ -232,9 +232,17 @@ func ScanRepo(repo, home string) []Finding {
 			out = append(out, Finding{Medium, "trust", "repo owner " + owner + " is not in trusted_repo_owners: sessions here start untrusted"})
 		}
 	}
+	if err != nil {
+		cfg = config.FailSafe() // what the hooks use while config.json is broken
+	}
+	if !cfg.ProfileKnown() {
+		out = append(out, Finding{Medium, "config", "unknown profile " + strconvQuote(cfg.Profile) + "; provguard uses balanced (valid: audit, balanced, strict)"})
+	}
 	out = append(out, Finding{Info, "profile", "active profile: " + cfg.ProfileName()})
 	return out
 }
+
+func strconvQuote(s string) string { return `"` + s + `"` }
 
 func oneLine(s string, max int) string {
 	s = strings.Join(strings.Fields(s), " ")

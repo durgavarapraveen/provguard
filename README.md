@@ -78,7 +78,7 @@ provguard starts in the **`audit` profile**: it logs what it *would* block and b
 | 5 | Reverse shell, or risky deletion (outside the project, history rewrites on shared branches, remote deletes) | ask |
 | 6 | Anything else | no decision (normal Claude Code permissions) |
 
-4. **Self-protection** (every profile): agents cannot change hook settings in any `.claude/settings*.json`, write to `~/.provguard/`, or run `provguard init`, `uninstall` or `reset`.
+4. **Self-protection** (every profile): agents cannot change hook or command settings in any `.claude/settings*.json`, write to `~/.provguard/`, read its key or session files, or run `provguard init`, `uninstall` or `reset`. Paths are checked as the OS resolves them, so junctions, symlinks and Windows path tricks do not get around it.
 
 | Profile | Behavior |
 |---|---|
@@ -135,9 +135,12 @@ Method, per-case results and caveats (the traces are author-written; real-agent 
   "trusted_mcp_servers": ["github"],
   "allowed_hosts": ["docs.python.org"],
   "trust_sdk_mcp_servers": true,
-  "self_protect": true
+  "self_protect": true,
+  "audit_retention_days": 30
 }
 ```
+
+If `config.json` cannot be parsed, or `profile` is misspelled, provguard enforces `balanced` (not `audit`) until you fix it, and `provguard doctor` reports the problem.
 
 | File | Content |
 |---|---|

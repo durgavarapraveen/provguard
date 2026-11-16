@@ -216,12 +216,16 @@ var persistBases = map[string]string{
 	".mcp.json": "agent_config", "claude.md": "agent_config", "agents.md": "agent_config",
 	".cursorrules": "agent_config", ".windsurfrules": "agent_config", "authorized_keys": "ssh",
 	".npmrc": "package_config", ".pypirc": "package_config",
+	// review (MED): more files that run commands later
+	"authorized_keys2": "ssh", ".bash_aliases": "shell_rc", ".bash_logout": "shell_rc", ".zlogout": "shell_rc",
+	".envrc": "direnv", ".pre-commit-config.yaml": "git_hooks", "lefthook.yml": "git_hooks",
 }
 
 var persistDirs = []struct{ dir, name string }{
 	{".github/workflows/", "ci"}, {".circleci/", "ci"}, {".git/hooks/", "git_hooks"},
 	{".husky/", "git_hooks"}, {".claude/", "agent_config"}, {".cursor/", "agent_config"},
 	{".vscode/tasks.json", "editor_tasks"}, {".vscode/settings.json", "editor_settings"},
+	{".vscode/launch.json", "editor_tasks"}, {".idea/runConfigurations/", "editor_tasks"},
 	{".ssh/config", "ssh"}, {".config/autostart/", "autostart"}, {"library/launchagents/", "autostart"},
 	{"/etc/", "system"}, {"start menu/programs/startup/", "autostart"}, {".git/config", "git_config"},
 }
@@ -236,7 +240,12 @@ func PersistPath(p string) string {
 		return w
 	}
 	for _, d := range persistDirs {
-		if strings.Contains(n, d.dir) || strings.HasPrefix(n, strings.TrimPrefix(d.dir, "/")) {
+		dir := strings.TrimPrefix(d.dir, "/")
+		if strings.Contains(n, d.dir) || strings.HasPrefix(n, dir) {
+			return d.name
+		}
+		// The folder itself, without a trailing slash: "cp h .git/hooks".
+		if bare := strings.TrimSuffix(dir, "/"); bare != dir && (n == bare || strings.HasSuffix(n, "/"+bare)) {
 			return d.name
 		}
 	}

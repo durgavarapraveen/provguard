@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 )
@@ -223,6 +224,7 @@ func Save(path string, s map[string]any) (string, error) {
 		if err := os.WriteFile(backup, old, 0o600); err != nil {
 			return "", fmt.Errorf("backup failed, settings not changed: %w", err)
 		}
+		pruneBackups(path, KeepBackups)
 	}
 	tmp := path + ".provguard-tmp"
 	if err := os.WriteFile(tmp, b, 0o600); err != nil {
@@ -233,6 +235,21 @@ func Save(path string, s map[string]any) (string, error) {
 		return "", err
 	}
 	return backup, nil
+}
+
+// KeepBackups is how many settings backups init keeps.
+const KeepBackups = 3
+
+// pruneBackups deletes all but the newest keep backups of path. Review
+// finding (LOW): one backup per init piled up, and backups can hold env
+// secrets. The timestamp in the name sorts in time order.
+func pruneBackups(path string, keep int) {
+	files, _ := filepath.Glob(path + ".provguard-bak-*")
+	sort.Strings(files)
+	for len(files) > keep {
+		os.Remove(files[0])
+		files = files[1:]
+	}
 }
 
 // HooksJSON returns the "hooks" section as indented JSON, for showing a diff.

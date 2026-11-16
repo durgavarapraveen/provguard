@@ -28,7 +28,7 @@ var rules = []rule{
 	{"jwt", regexp.MustCompile(`\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}`), 0},
 	{"bearer", regexp.MustCompile(`(?i)\bbearer\s+([A-Za-z0-9._~+/-]{16,}=*)`), 1},
 	{"url_password", regexp.MustCompile(`[a-zA-Z][a-zA-Z0-9+.-]*://[^/\s:@]+:([^@\s/]+)@`), 1},
-	{"assignment", regexp.MustCompile(`(?i)\b[A-Za-z0-9_]*(?:pass(?:word|wd)?|secret|token|api[_-]?key|access[_-]?key|private[_-]?key|credential|auth)[A-Za-z0-9_]*["']?\s*[:=]\s*["']?([^\s"',;]{6,})`), 1},
+	{"assignment", regexp.MustCompile(`(?i)\b[A-Za-z0-9_]*(?:pass(?:word|wd)?|secret|token|api[_-]?key|access[_-]?key|private[_-]?key|credential|auth(?:[_-]?(?:token|key|secret|code)|orization)\b)[A-Za-z0-9_]*["']?\s*[:=]\s*["']?([^\s"',;]{6,})`), 1},
 }
 
 var candidate = regexp.MustCompile(`[A-Za-z0-9+/_=-]{32,}`)
@@ -58,10 +58,8 @@ func Find(s string, all bool) []Match {
 		}
 	}
 	if all {
-		for _, m := range candidate.FindAllString(s, -1) {
-			if entropy(m) > minEntropy && !looksLikePath(m) {
-				out = append(out, Match{"high_entropy", m})
-			}
+		for _, sp := range highEntropy(s) {
+			out = append(out, Match{"high_entropy", s[sp[0]:sp[1]]})
 		}
 	}
 	return out
@@ -72,19 +70,49 @@ func String(s string) string {
 	for _, r := range rules {
 		s = replace(s, r)
 	}
-	return candidate.ReplaceAllStringFunc(s, func(m string) string {
-		if entropy(m) > minEntropy && !looksLikePath(m) {
-			return "[REDACTED:high_entropy]"
+	spans := highEntropy(s)
+	if len(spans) == 0 {
+		return s
+	}
+	var sb strings.Builder
+	last := 0
+	for _, sp := range spans {
+		sb.WriteString(s[last:sp[0]])
+		sb.WriteString("[REDACTED:high_entropy]")
+		last = sp[1]
+	}
+	sb.WriteString(s[last:])
+	return sb.String()
+}
+
+// highEntropy returns [start,end) spans of high-entropy strings that are not
+// parts of file paths.
+func highEntropy(s string) [][2]int {
+	var out [][2]int
+	for _, ix := range candidate.FindAllStringIndex(s, -1) {
+		m := s[ix[0]:ix[1]]
+		if entropy(m) > minEntropy && !(looksLikePath(m) && inPathPosition(s, ix[0])) {
+			out = append(out, [2]int{ix[0], ix[1]})
 		}
-		return m
-	})
+	}
+	return out
+}
+
+// inPathPosition: the string starts a path ("/…") or continues one (after
+// "C:", ".", "~", "/" or "\"). Review finding (MED): the path exemption alone
+// let a slash-containing AWS secret through ("… aws_secret_access_key
+// wJalr…/K7MD…/bPxR…"), because a secret after a space is never a path.
+func inPathPosition(s string, start int) bool {
+	if s[start] == '/' {
+		return true
+	}
+	return start > 0 && strings.IndexByte("/.~:\\", s[start-1]) >= 0
 }
 
 // looksLikePath: file paths have high character entropy but short segments.
 // Found live: Windows temp paths were redacted in the audit log. A path has
 // at least two separators and no segment longer than 48 characters (UUID
-// folders are 36, Go build-cache hashes 42). Secrets with "/" in them (e.g.
-// AWS secret keys) are still caught by the key=value and token rules.
+// folders are 36, Go build-cache hashes 42).
 func looksLikePath(m string) bool {
 	if strings.Count(m, "/") < 2 {
 		return false

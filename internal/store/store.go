@@ -223,7 +223,7 @@ func lock(name string) (func(), error) {
 			return nil, err
 		}
 		if fi, err := os.Stat(name); err == nil && time.Since(fi.ModTime()) > lockStale {
-			os.Remove(name)
+			breakStale(name)
 			continue
 		}
 		if time.Now().After(deadline) {
@@ -234,6 +234,24 @@ func lock(name string) (func(), error) {
 			delay *= 2
 		}
 	}
+}
+
+// breakStale removes a lock left by a crashed hook. Review finding (LOW): two
+// waiters could both see it stale; the second one's os.Remove then deleted the
+// first one's fresh lock. Renaming is atomic, so only one waiter moves the
+// file; if what it moved turns out to be fresh, it puts it back.
+func breakStale(name string) {
+	tmp := fmt.Sprintf("%s.stale-%d-%d", name, os.Getpid(), time.Now().UnixNano())
+	if os.Rename(name, tmp) != nil {
+		return // another waiter broke it first
+	}
+	if fi, err := os.Stat(tmp); err == nil && time.Since(fi.ModTime()) <= lockStale {
+		if _, err := os.Stat(name); errors.Is(err, os.ErrNotExist) {
+			os.Rename(tmp, name) // we took a live lock: restore it
+			return
+		}
+	}
+	os.Remove(tmp)
 }
 
 // GC deletes session files not updated for MaxAge. It returns the count removed.

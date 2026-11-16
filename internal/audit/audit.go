@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/durgavarapraveen/provguard/internal/event"
@@ -78,6 +79,32 @@ func FromEvent(e event.Event) Record {
 		r.OutputSHA256 = hex.EncodeToString(sum[:])
 	}
 	return r
+}
+
+// DefaultRetentionDays is how long daily audit logs are kept.
+const DefaultRetentionDays = 30
+
+// GC deletes daily log files older than days (by the date in the file name).
+// days <= 0 keeps everything. It returns the number of files removed.
+// Review finding (MED): logs grew forever.
+func GC(home string, days int, now time.Time) int {
+	if days <= 0 {
+		return 0
+	}
+	files, _ := filepath.Glob(filepath.Join(home, "audit", "*.jsonl"))
+	y, m, d := now.UTC().AddDate(0, 0, -days).Date()
+	cutoff := time.Date(y, m, d, 0, 0, 0, 0, time.UTC) // whole days: keep the day exactly N days ago
+	n := 0
+	for _, f := range files {
+		day, err := time.Parse("2006-01-02", strings.TrimSuffix(filepath.Base(f), ".jsonl"))
+		if err != nil || !day.Before(cutoff) {
+			continue
+		}
+		if os.Remove(f) == nil {
+			n++
+		}
+	}
+	return n
 }
 
 // Home returns the provguard data directory.

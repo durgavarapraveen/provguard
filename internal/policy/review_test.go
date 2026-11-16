@@ -1,6 +1,8 @@
 package policy
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -8,6 +10,27 @@ import (
 )
 
 // Regression tests for the 2026-11 security review (HIGH findings).
+
+// Review (MED): no project folder when cwd is home or a root.
+func TestReviewDeleteFromHome(t *testing.T) {
+	home, _ := os.UserHomeDir()
+	for _, c := range []struct {
+		cwd, cmd string
+		ask      bool
+	}{
+		{home, "rm -rf Documents", true},
+		{home, "rm -rf " + filepath.ToSlash(filepath.Join(home, "Documents")), true},
+		{"/", "rm -rf tmp", true},
+		{`C:\`, "rm -rf Windows", true},
+		{filepath.Join(home, "proj"), "rm -rf build", false},
+	} {
+		a := shell.Analyze(c.cmd, shell.Bash)
+		r := Evaluate(Input{Tool: "Bash", Sinks: a.Sinks, Text: c.cmd, Session: sess(false, false), Config: bal(), Cwd: c.cwd})
+		if (r.Decision == Ask) != c.ask {
+			t.Errorf("cwd=%s %q: decision %q, want ask=%v", c.cwd, c.cmd, r.Decision, c.ask)
+		}
+	}
+}
 
 func TestReviewLoopback(t *testing.T) {
 	for target, local := range map[string]bool{
