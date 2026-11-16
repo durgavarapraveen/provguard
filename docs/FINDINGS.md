@@ -73,6 +73,12 @@ With self-protection on, both attacks were blocked in a live session:
 - Write tool, same content → denied.
 The agent sees the reason and is told to ask the user to do it in a terminal.
 
+### F9. Keyword matching vs. parsing — week 3
+- **False positive (week 2, live):** `git commit -m "...disableAllHooks..."` was denied because a regex matched text inside a quoted argument. With the parser, only resolved write targets and unreadable code count. Regression tests in `protect_test.go`.
+- **False negatives the regex missed, now caught (live and in tests):** a variable path (`D=.claude; echo {} > "$D/settings.json"`), `bash -c '...'`, here-documents fed to `bash`, wrappers (`sudo tee`, `env … timeout … cp`), and `cd .claude && … > settings.json`.
+- **PowerShell gaps found by tests and fixed:** grouping parentheses (`(iwr URL).Content`) were not analyzed. Commands inside `{ }` blocks (`if (…) { … }`, `ForEach-Object { … }`) were not analyzed. `$x` alone was wrongly treated as a command; PowerShell runs a variable only with `&` or `.`.
+- Analysis cost: about 15 µs (Bash) and 20 µs (PowerShell) per command. That is negligible next to process start (M3).
+
 ## Measurements
 
 ### M1. Hook latency, log-only (Windows 11, go1.27.4, 2026-11-16)
