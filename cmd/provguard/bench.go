@@ -327,16 +327,23 @@ func makeRepo(url string) (string, error) {
 }
 
 func decisionOf(out []byte) string {
+	d, _ := hookDecision(out)
+	return d
+}
+
+// hookDecision returns the PreToolUse decision and the message the user sees.
+func hookDecision(out []byte) (decision, message string) {
 	if len(bytes.TrimSpace(out)) == 0 {
-		return ""
+		return "", ""
 	}
 	var v struct {
 		H struct {
 			D string `json:"permissionDecision"`
+			R string `json:"permissionDecisionReason"`
 		} `json:"hookSpecificOutput"`
 	}
 	_ = json.Unmarshal(out, &v)
-	return v.H.D
+	return v.H.D, v.H.R
 }
 
 func writeConfig(home, profile string, extra map[string]any) error {
