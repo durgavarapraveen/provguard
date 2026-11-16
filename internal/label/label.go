@@ -338,7 +338,7 @@ func trustedGitHubRead(why, cmd, cwd string, env Env) bool {
 	}
 	seen := false
 	for _, c := range shell.AnalyzeUnknown(cmd).Cmds {
-		if c.Name != "gh" && c.Name != "glab" {
+		if c.Name != "gh" && c.Name != "glab" || len(c.Args) == 0 {
 			continue
 		}
 		seen = true
@@ -494,6 +494,9 @@ func secretCommand(cmd string) string {
 	// Quotes and globs hide names from the token split (cat .en''v, cat .e?v):
 	// use the analyzer's resolved arguments (review finding).
 	for _, c := range shell.AnalyzeUnknown(cmd).Cmds {
+		if len(c.Args) == 0 {
+			continue // a command whose name is known only at run time
+		}
 		for _, a := range c.Args[1:] {
 			if sensitiveArg(a) {
 				return "file:" + path.Base(norm(a))
