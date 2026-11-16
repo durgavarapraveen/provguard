@@ -140,8 +140,17 @@ func TestGitHubReadOfTrustedRepo(t *testing.T) {
 		cmd       string
 		untrusted bool
 	}{
-		{"gh issue view 12", false},                   // cwd repo, owner me
-		{"gh pr view 3 -R me/app", false},             // explicit own repo
+		// Review: issue/PR text is written by outsiders even in your own repo.
+		{"gh issue view 12", true},
+		{"gh pr view 3 -R me/app", true},
+		{"gh pr view 3 -R me/app --json state,url --jq .state", false},
+		{"gh pr view --json state,title", true}, // titles are outsider text
+		{"gh pr create --fill", false},
+		{"gh pr checks", false},
+		{"gh search issues provguard", true},
+		{"gh pr view 1 -R me/x --json state; gh issue view 9 -R attacker/y", true}, // every call must be trusted
+		{"gh repo view", false},
+		{"gh run view 123 --log", true},
 		{"gh issue view 9 --repo stranger/lib", true}, // someone else's repo
 		{"gh api repos/stranger/lib/issues/1", true},  // someone else's repo
 		{"gh api repos/me/app/pulls", false},          // own repo via API

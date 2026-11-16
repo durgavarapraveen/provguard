@@ -43,6 +43,29 @@ func TestConcurrentUpdatesKeepEveryWrite(t *testing.T) {
 	}
 }
 
+// Review (HIGH, Windows): a reader holding the session file open made the
+// writer's rename fail with "Access is denied", losing the update.
+func TestUpdateWhileReaderHoldsFile(t *testing.T) {
+	home := t.TempDir()
+	if err := Update(home, "s", func(s *Session) error { return nil }); err != nil {
+		t.Fatal(err)
+	}
+	f, err := os.Open(path(home, "s"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	go func() { time.Sleep(15 * time.Millisecond); f.Close() }()
+	if err := Update(home, "s", func(s *Session) error {
+		s.MarkTainted(Source{Tool: "WebFetch", Reason: "x"})
+		return nil
+	}); err != nil {
+		t.Fatalf("update lost while a reader held the file: %v", err)
+	}
+	if s, _ := Get(home, "s"); !s.Tainted {
+		t.Fatal("taint not saved")
+	}
+}
+
 func TestTaintIsSticky(t *testing.T) {
 	home := t.TempDir()
 	_ = Update(home, "s", func(s *Session) error {
@@ -83,6 +106,26 @@ func TestStaleLockIsBroken(t *testing.T) {
 	os.Chtimes(lk, old, old)
 	if err := Update(home, "s", func(*Session) error { return nil }); err != nil {
 		t.Fatalf("stale lock not broken: %v", err)
+	}
+}
+
+// Review (LOW): breaking a stale lock must not delete a fresh one.
+func TestBreakStaleKeepsFreshLock(t *testing.T) {
+	dir := t.TempDir()
+	lk := filepath.Join(dir, "s.json.lock")
+	os.WriteFile(lk, nil, 0o600) // fresh lock, just taken by another hook
+	breakStale(lk)
+	if _, err := os.Stat(lk); err != nil {
+		t.Fatal("fresh lock was removed")
+	}
+	old := time.Now().Add(-time.Minute)
+	os.Chtimes(lk, old, old)
+	breakStale(lk)
+	if _, err := os.Stat(lk); !os.IsNotExist(err) {
+		t.Fatal("stale lock not removed")
+	}
+	if m, _ := filepath.Glob(lk + ".stale-*"); len(m) != 0 {
+		t.Fatalf("leftover files: %v", m)
 	}
 }
 

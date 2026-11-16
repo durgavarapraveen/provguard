@@ -128,6 +128,20 @@ func TestCopyBinaryIntoHome(t *testing.T) {
 	}
 }
 
+// Review (LOW): backups piled up, one per init.
+func TestPruneBackups(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "settings.json")
+	for _, ts := range []string{"20261101-100000", "20261102-100000", "20261103-100000", "20261104-100000", "20261105-100000"} {
+		os.WriteFile(p+".provguard-bak-"+ts, []byte("{}"), 0o600)
+	}
+	pruneBackups(p, 3)
+	left, _ := filepath.Glob(p + ".provguard-bak-*")
+	if len(left) != 3 || filepath.Base(left[0]) != "settings.json.provguard-bak-20261103-100000" {
+		t.Fatalf("kept %v", left)
+	}
+}
+
 func TestAddRefusesNonObjectHooks(t *testing.T) {
 	if err := Add(map[string]any{"hooks": "bad"}, exe, events); err == nil {
 		t.Fatal("expected error")

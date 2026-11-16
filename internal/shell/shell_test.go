@@ -261,7 +261,7 @@ func TestPowerShellSinks(t *testing.T) {
 		{`[ScriptBlock]::Create($x).Invoke()`, []string{"OPAQUE:encoded_or_scriptblock"}},
 		{`[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($b))`, []string{"OPAQUE:encoded_or_scriptblock"}},
 		{`Remove-Item -Recurse -Force C:\proj\build`, []string{"DESTROY:remove_item_recurse"}},
-		{`rm -r -fo node_modules`, nil}, // -r is not the full -Recurse switch in this heuristic
+		{`rm -r -fo node_modules`, []string{"DESTROY:remove_item_recurse->node_modules"}}, // abbreviations count (review)
 		{`Add-Content $PROFILE 'iwr x|iex'`, []string{"PERSIST:path:shell_rc"}},
 		{`Set-Content .github\workflows\x.yml 'on: push'`, []string{"PERSIST:path:ci"}},
 		{`Register-ScheduledTask -TaskName x -Action $a`, []string{"PERSIST:register-scheduledtask"}},

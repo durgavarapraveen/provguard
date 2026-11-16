@@ -1,7 +1,9 @@
 package main
 
 import (
+	"context"
 	"io"
+	"os/exec"
 	"strings"
 	"time"
 
@@ -29,7 +31,8 @@ func handle(e event.Event, stdout io.Writer, rec *audit.Record) {
 	}
 	cfg, err := config.Load(home)
 	if err != nil {
-		rec.Error = err.Error() // continue with defaults
+		rec.Error = err.Error() + " (using the balanced profile until it is fixed)"
+		cfg = config.FailSafe()
 	}
 
 	switch e.Kind {
@@ -77,10 +80,14 @@ func handle(e event.Event, stdout io.Writer, rec *audit.Record) {
 		if len(snap.Fingerprints) > 0 {
 			key, _ = fingerprint.LoadOrCreate(home)
 		}
-		r := policy.Evaluate(policy.Input{
+		in := policy.Input{
 			Tool: e.ToolName, Sinks: sinks, Text: text, Session: snap, Key: key, Config: cfg,
 			Cwd: e.Cwd, RemoteTrusted: remoteTrusted(cfg, e.Cwd),
-		})
+		}
+		if key != nil && e.Cwd != "" {
+			in.OutgoingDiff = gitOutgoingDiff(e.Cwd)
+		}
+		r := policy.Evaluate(in)
 		rec.Profile, rec.Would = cfg.ProfileName(), r.Would
 		if r.Would != policy.None {
 			rec.Rule, rec.Reason = r.Rule, r.Reason
@@ -97,6 +104,11 @@ func handle(e event.Event, stdout io.Writer, rec *audit.Record) {
 		}
 	case event.SessionBeg:
 		store.GC(home)
+		days := cfg.AuditRetentionDays
+		if days == 0 {
+			days = audit.DefaultRetentionDays
+		}
+		audit.GC(home, days, time.Now())
 		if err := untrustedRepoAtStart(home, cfg, e, rec); err != nil {
 			rec.Error = err.Error()
 		}
@@ -134,6 +146,31 @@ func configChanged(home string, e event.Event, rec *audit.Record) error {
 		rec.SessionTainted = true
 		return nil
 	})
+}
+
+// maxDiff caps the patch text scanned for secrets before a push.
+const maxDiff = 2 << 20
+
+// gitOutgoingDiff returns a function that lists the commits a push from cwd
+// would send: commits not on the upstream, or the last 20 for a new branch.
+func gitOutgoingDiff(cwd string) func() string {
+	return func() string {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		run := func(args ...string) (string, error) {
+			cmd := exec.CommandContext(ctx, "git", append([]string{"-C", cwd, "log", "-p", "--no-color", "--no-ext-diff"}, args...)...)
+			out, err := cmd.Output()
+			if len(out) > maxDiff {
+				out = out[:maxDiff]
+			}
+			return string(out), err
+		}
+		if out, err := run("@{upstream}..HEAD"); err == nil {
+			return out
+		}
+		out, _ := run("-n", "20")
+		return out
+	}
 }
 
 // remoteTrusted returns a lookup: does a git remote (name or URL) of the repo
