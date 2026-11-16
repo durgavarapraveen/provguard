@@ -28,6 +28,8 @@ Usage:
   provguard uninstall [--settings P] [--yes] remove hooks from Claude Code settings
   provguard explain [session|latest] [--all]  show labels and policy hits of a session
   provguard reset [session|latest] [--yes]    clear a session's untrusted label (user only)
+  provguard bench [--profiles P] [--cases IDs] [--check] [--out F] [--live --runs N --model M]
+                                             run the attack benchmark
   provguard version
 `
 
@@ -51,6 +53,8 @@ func main() {
 		os.Exit(runExplain(os.Args[2:], os.Stdout))
 	case "reset":
 		os.Exit(runReset(os.Args[2:], os.Stdout))
+	case "bench":
+		os.Exit(runBench(os.Args[2:], os.Stdout))
 	case "version", "--version", "-v":
 		fmt.Println("provguard", version)
 	default:

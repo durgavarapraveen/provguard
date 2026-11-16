@@ -59,11 +59,26 @@ func (b *bashAn) assign(as *syntax.Assign) {
 // stmt handles redirects and here-documents fed to a shell.
 func (b *bashAn) stmt(s *syntax.Stmt) {
 	for _, r := range s.Redirs {
+		// bash opens a network socket for /dev/tcp/HOST/PORT and /dev/udp/...
+		// (reverse shells, raw exfil). That is EGRESS, not a file write.
+		if r.Word != nil {
+			if v, _ := b.word(r.Word); strings.HasPrefix(v, "/dev/tcp/") || strings.HasPrefix(v, "/dev/udp/") {
+				b.a.sink(Egress, "dev_tcp", strings.TrimPrefix(strings.TrimPrefix(v, "/dev/tcp/"), "/dev/udp/"))
+				continue
+			}
+		}
 		switch r.Op {
 		case syntax.RdrOut, syntax.RdrClob, syntax.RdrAll, syntax.RdrInOut:
 			if r.Word != nil {
 				v, dyn := b.word(r.Word)
 				b.a.write(v, "write", dyn)
+			}
+		case syntax.DplOut:
+			// ">& file" writes stdout and stderr to file; ">&2" is fd duplication.
+			if r.Word != nil {
+				if v, dyn := b.word(r.Word); v != "-" && strings.Trim(v, "0123456789") != "" {
+					b.a.write(v, "write", dyn)
+				}
 			}
 		case syntax.AppOut, syntax.AppAll, syntax.AppClob:
 			if r.Word != nil {

