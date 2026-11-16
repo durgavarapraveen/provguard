@@ -2,7 +2,7 @@
 
 A runtime firewall for AI coding agents. It tracks where context comes from and blocks dangerous tool calls that untrusted content drives.
 
-> **Status: week 2.** provguard labels what each session reads (untrusted, sensitive) and blocks one thing: agent changes to hook settings or provguard's own files. The main policy (blocking exfiltration) comes in week 4.
+> **Status: week 3.** provguard labels what each session reads (untrusted, sensitive), parses every Bash/PowerShell command into sink classes (EGRESS, PERSIST, DESTROY, EXEC_REMOTE, OPAQUE) and logs them, and blocks one thing: agent changes to hook settings or provguard's own files. The main policy (blocking exfiltration) comes in week 4.
 
 See [DESIGN.md](DESIGN.md) for the threat model, design and MVP plan.
 
@@ -76,9 +76,16 @@ An agent cannot edit this file, because self-protection blocks it. Edit it yours
 - **Fail open.** If provguard has an error, the agent continues with its normal permission flow. provguard never returns "allow"; it only denies.
 - **No raw secrets on disk.** Tool inputs are redacted. Tool outputs are stored as size and SHA-256 only. Secrets are stored as HMAC fingerprints only.
 
+## Shell analysis
+
+Bash commands are parsed with [mvdan.cc/sh](https://github.com/mvdan/sh). provguard walks pipes, lists, subshells, `$(...)`, `<(...)`, here-documents, functions and control flow; resolves variables assigned in the same command; and looks inside wrappers (`sudo`, `env`, `timeout`, `xargs`, `bash -c`, `pwsh -Command`, `cmd /c`, `python -c`, `node -e`, `find -exec`). PowerShell uses a tokenizer heuristic (no Go parser exists): quotes, `$(...)`, `(...)`, script blocks, pipelines, redirects, aliases and named parameters.
+
+Each Bash/PowerShell call's sinks are written to the audit log, e.g. `"sinks": ["EGRESS:curl->https://example.com"]`. Self-protection uses the resolved write targets, so text inside a commit message no longer triggers it.
+
 ## Known gaps
 
-- Self-protection is pattern-based for shell commands. A command that builds the settings path at run time can get past it. Week 3 adds a shell parser.
+- Values known only at run time (environment variables, command output) cannot be resolved. Writes to such paths are blocked only when the command also names protected files; code that provguard cannot read (`eval`, `python -c`, encoded commands) is blocked only when its text names protected files.
+- The PowerShell analysis is a heuristic, not a full parser.
 - The provguard binary itself is not protected from replacement yet (week 7).
 
 ## License

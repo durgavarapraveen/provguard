@@ -8,11 +8,13 @@ package protect
 import (
 	"encoding/json"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"strings"
 
 	"github.com/durgavarapraveen/provguard/internal/event"
+	"github.com/durgavarapraveen/provguard/internal/shell"
 )
 
 // Verdict is the self-protection result. Zero value means "no objection".
@@ -29,13 +31,21 @@ func deny(rule, reason string) Verdict {
 }
 
 // Check inspects a PreToolUse event. home is provguard's data directory.
-func Check(e event.Event, home string) Verdict {
+// an is the shell analysis for Bash/PowerShell; nil means "analyze here".
+func Check(e event.Event, home string, an *shell.Analysis) Verdict {
 	switch e.ToolName {
 	case "Write", "Edit":
 		return checkFileTool(e, home)
 	case "Bash", "PowerShell":
 		cmd, _ := e.ToolInput["command"].(string)
-		return checkShell(cmd)
+		if an == nil {
+			d := shell.Bash
+			if e.ToolName == "PowerShell" {
+				d = shell.PowerShell
+			}
+			an = shell.Analyze(cmd, d)
+		}
+		return checkShell(an, cmd, home)
 	}
 	return Verdict{}
 }
@@ -45,7 +55,8 @@ func norm(p string) string { return strings.ToLower(strings.ReplaceAll(p, `\`, "
 // IsSettingsFile reports whether p is a Claude Code settings file (user or project).
 func IsSettingsFile(p string) bool {
 	n := norm(p)
-	return strings.HasSuffix(n, "/.claude/settings.json") || strings.HasSuffix(n, "/.claude/settings.local.json")
+	return strings.HasSuffix(n, "/.claude/settings.json") || strings.HasSuffix(n, "/.claude/settings.local.json") ||
+		n == ".claude/settings.json" || n == ".claude/settings.local.json"
 }
 
 func underHome(p, home string) bool {
@@ -118,76 +129,59 @@ func hookKeys(content string) (string, bool) {
 
 // --- shell ---
 
-var (
-	settingsRef   = regexp.MustCompile(`(?i)\.claude[\\/]+settings(?:\.local)?\.json`)
-	claudeDirRef  = regexp.MustCompile(`(?i)\.claude\b`)
-	settingsName  = regexp.MustCompile(`(?i)\bsettings(?:\.local)?\.json\b`)
-	disableRef    = regexp.MustCompile(`(?i)disableAllHooks|allowManagedHooksOnly`)
-	homeRef       = regexp.MustCompile(`(?i)\.provguard\b`)
-	installCmdRef = regexp.MustCompile(`(?i)\bprovguard(?:\.exe)?["']?\s+(?:init|uninstall)\b`)
+// protectedText finds references to protected things inside code that
+// provguard cannot analyze (python -c, eval, iex, encoded commands).
+var protectedText = regexp.MustCompile(`(?i)disableAllHooks|allowManagedHooksOnly|\.claude[\\/]+settings(?:\.local)?\.json|\.provguard\b`)
 
-	harmlessRedirect = regexp.MustCompile(`(?i)\d?>&\d|\d?>\s*(?:/dev/null|\$null|nul)\b`)
-	segmentSplit     = regexp.MustCompile(`\|\||&&|[|;&\n]`)
-)
-
-// readOnly lists commands that only read files.
-var readOnly = map[string]bool{
-	"cat": true, "type": true, "head": true, "tail": true, "less": true, "more": true,
-	"grep": true, "rg": true, "jq": true, "wc": true, "sort": true, "uniq": true,
-	"ls": true, "dir": true, "stat": true, "file": true, "diff": true, "cmp": true,
-	"echo": true, "pwd": true, "cd": true, "find": true, "sed": true, "awk": false,
-	"sha256sum": true, "md5sum": true, "test": true, "[": true,
-	"get-content": true, "gc": true, "select-string": true, "sls": true,
-	"get-childitem": true, "gci": true, "test-path": true, "get-item": true,
-	"convertfrom-json": true, "select-object": true, "measure-object": true,
-	"sort-object": true, "where-object": true, "format-table": true, "format-list": true,
-	"out-string": true, "get-filehash": true, "set-location": true, "write-output": true,
-}
-
-func checkShell(cmd string) Verdict {
-	if cmd == "" {
-		return Verdict{}
-	}
-	if installCmdRef.MatchString(cmd) {
-		return deny("self_protect_install", "blocked an agent from running provguard init/uninstall")
-	}
-	ref := ""
-	switch {
-	case disableRef.MatchString(cmd):
-		ref = "hook settings (disableAllHooks)"
-	case settingsRef.MatchString(cmd), claudeDirRef.MatchString(cmd) && settingsName.MatchString(cmd):
-		ref = "a Claude settings file"
-	case homeRef.MatchString(cmd):
-		ref = "provguard's data directory"
-	}
-	if ref == "" || shellReadOnly(cmd) {
-		return Verdict{}
-	}
-	return deny("self_protect_shell", "blocked a shell command that may change "+ref)
-}
-
-// shellReadOnly is conservative: any doubt means "not read-only".
-func shellReadOnly(cmd string) bool {
-	c := harmlessRedirect.ReplaceAllString(cmd, "")
-	if strings.Contains(c, ">") || strings.Contains(c, "`") || strings.Contains(c, "$(") {
-		return false
-	}
-	for _, seg := range segmentSplit.Split(c, -1) {
-		f := strings.Fields(strings.TrimLeft(strings.TrimSpace(seg), "("))
-		if len(f) == 0 {
-			continue
-		}
-		name := strings.TrimSuffix(strings.ToLower(filepath.Base(strings.Trim(f[0], `"'`))), ".exe")
-		if !readOnly[name] {
-			return false
-		}
-		for _, a := range f[1:] {
-			la := strings.ToLower(a)
-			if (name == "sed" && strings.HasPrefix(la, "-i")) ||
-				(name == "find" && (la == "-delete" || la == "-exec" || la == "-execdir" || la == "-fprint")) {
-				return false
+// Shell-level writes to settings files cannot be compared like Write/Edit
+// (the content is often unknown), so any shell write to them is denied.
+func checkShell(an *shell.Analysis, raw, home string) Verdict {
+	for _, c := range an.Cmds {
+		if c.Name == "provguard" && len(c.Args) > 1 {
+			if sub := strings.ToLower(c.Args[1]); sub == "init" || sub == "uninstall" {
+				return deny("self_protect_install", "blocked an agent from running provguard "+sub)
 			}
 		}
 	}
-	return true
+	claudeCd := false
+	for _, d := range an.Cds {
+		if strings.Contains(norm(d), ".claude") {
+			claudeCd = true
+		}
+	}
+	for _, w := range an.Writes {
+		if why := protectedTarget(w.Path, home, claudeCd); why != "" {
+			return deny("self_protect_shell", "blocked a shell command that would "+w.Op+" "+why+" ("+w.Path+")")
+		}
+	}
+	// Code provguard cannot analyze: deny if it mentions protected things.
+	for _, code := range an.Code {
+		if protectedText.MatchString(code) {
+			return deny("self_protect_shell", "blocked code that provguard cannot analyze and that refers to hook settings or provguard files")
+		}
+	}
+	// A write whose path is fully unknown, in a command that names protected things.
+	for _, w := range an.Writes {
+		if w.Dynamic && protectedText.MatchString(raw) {
+			return deny("self_protect_shell", "blocked a write to a path known only at run time, in a command that refers to hook settings or provguard files")
+		}
+	}
+	return Verdict{}
+}
+
+// protectedTarget explains why writing p is not allowed, or returns "".
+func protectedTarget(p, home string, claudeCd bool) string {
+	n := norm(p)
+	base := path.Base(n)
+	switch {
+	case IsSettingsFile(p):
+		return "a Claude settings file"
+	case (base == "settings.json" || base == "settings.local.json") && (claudeCd || strings.Contains(n, "$")):
+		return "a Claude settings file"
+	case base == ".claude" || strings.HasSuffix(n, "/.claude/"):
+		return "a .claude directory"
+	case strings.Contains(n, ".provguard"), underHome(p, home):
+		return "provguard's data directory"
+	}
+	return ""
 }
