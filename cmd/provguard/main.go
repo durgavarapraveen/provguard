@@ -83,6 +83,8 @@ func main() {
 		os.Exit(runStatus(os.Args[2:], os.Stdin, os.Stdout))
 	case "version", "--version", "-v":
 		fmt.Println("provguard", version)
+	case "help", "--help", "-h":
+		fmt.Print(usage)
 	default:
 		fmt.Fprint(os.Stderr, usage)
 		os.Exit(2)

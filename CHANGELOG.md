@@ -9,6 +9,14 @@
 - `"block_mode": "ask"` turns `balanced` denies into an approval prompt.
 - Session title icon and `provguard status` for the trust state; `provguard-badge` desktop mod (status entry and toasts).
 
+### Easier to use
+- One-line install scripts (`scripts/install.sh`, `scripts/install.ps1`) that check the binary's SHA-256 and start the setup.
+- Guided `provguard init`: three questions (trusted repo owners, mode, block or ask), then a short summary. `--yes` still installs without questions.
+- `provguard config` shows and changes settings, so nobody edits JSON by hand. Agents may read the settings, not change them.
+- Block messages are one plain sentence plus the next step (`provguard allow`, `provguard config allow-host`). The audit log keeps the technical reason.
+- `provguard review` groups what was stopped, or would have been, and says what to do next. In watch-only mode, provguard suggests a review once after three days.
+- `provguard help`; the help text is grouped for new users.
+
 ### Fixed (security audit, Nov 2026)
 - Self-protection: code provguard cannot read (`python -c`, `eval`, a script file) could run `provguard allow <token>` and grant the agent's own blocked call. Script files are now streamed whole in overlapping windows, instead of one capped read of the start, and the pattern covers globbed spellings of `.provguard` and `.claude/settings*.json`.
 - Self-protection: provguard's binary could be copied out of any folder but `~/.provguard/bin` and run under another name. Copies are matched by the binary's own name, and looking its path up (`which provguard`) is blocked.
