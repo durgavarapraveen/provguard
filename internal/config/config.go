@@ -35,6 +35,11 @@ type Config struct {
 	// AllowedHosts: fetched content from these hosts is trusted (used from week 4).
 	AllowedHosts []string `json:"allowed_hosts,omitempty"`
 
+	// SessionTitleIcon puts the trust icon (🔴 🟡 🟠) in front of the session
+	// title, so untrusted sessions stand out in the app's session list.
+	// Default true.
+	SessionTitleIcon *bool `json:"session_title_icon,omitempty"`
+
 	// AuditRetentionDays: daily audit logs older than this are deleted at
 	// session start. 0 = default (30); negative = keep forever.
 	AuditRetentionDays int `json:"audit_retention_days,omitempty"`
@@ -94,6 +99,8 @@ func (c Config) HostAllowed(host string) bool {
 }
 
 func (c Config) TrustSDK() bool { return c.TrustSDKMCPServers == nil || *c.TrustSDKMCPServers }
+
+func (c Config) TitleIconOn() bool { return c.SessionTitleIcon == nil || *c.SessionTitleIcon }
 
 func (c Config) RepoOwnerTrusted(owner string) bool {
 	return contains(c.TrustedRepoOwners, owner)

@@ -94,6 +94,7 @@ provguard starts in the **`audit` profile**: it logs what it *would* block and b
 | Claude Code CLI | A colored status line: 🟢 clean · 🟡 untrusted · 🟠 sensitive · 🔴 both, plus the profile |
 | Any terminal | `provguard status` (`--json` for scripts, `--plain` without colors) |
 | Claude desktop app | The `provguard-badge` mod: a colored band above the prompt, a status entry, and a toast on each change |
+| Session list (sidebar) | The session title gets the icon in front, e.g. `🔴 Fix login`, on your next prompt. Turn off with `"session_title_icon": false`. A session without a title yet is left alone. |
 
 Status line: add this to `~/.claude/settings.json` yourself (provguard blocks agents from editing `statusLine`, because it runs a command):
 

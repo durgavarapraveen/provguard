@@ -234,6 +234,55 @@ func TestTransitionNotice(t *testing.T) {
 	}
 }
 
+func TestTitleWithIcon(t *testing.T) {
+	cases := []struct {
+		cur                string
+		tainted, sensitive bool
+		want               string
+	}{
+		{"Fix login", true, false, "🟡 Fix login"},
+		{"Fix login", false, true, "🟠 Fix login"},
+		{"Fix login", true, true, "🔴 Fix login"},
+		{"🟡 Fix login", true, true, "🔴 Fix login"}, // upgrade, no double icon
+		{"🔴 Fix login", true, true, ""},            // already right
+		{"🟡 Fix login", false, false, "Fix login"}, // reset: icon removed
+		{"Fix login", false, false, ""},            // clean: untouched
+		{"", true, true, ""},                       // no title yet: leave it to the app
+	}
+	for _, c := range cases {
+		if got := titleWithIcon(c.cur, c.tainted, c.sensitive); got != c.want {
+			t.Errorf("titleWithIcon(%q,%v,%v) = %q, want %q", c.cur, c.tainted, c.sensitive, got, c.want)
+		}
+	}
+}
+
+func TestPromptSetsSessionTitle(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("PROVGUARD_HOME", home)
+	hook := func(m map[string]any) string {
+		b, _ := json.Marshal(m)
+		var out bytes.Buffer
+		runHook(bytes.NewReader(b), &out, "")
+		return out.String()
+	}
+	hook(map[string]any{"session_id": "t1", "hook_event_name": "PostToolUse", "tool_name": "WebFetch",
+		"tool_input": map[string]any{"url": "https://x.test"}, "tool_response": map[string]any{"result": "hi"}})
+	out := hook(map[string]any{"session_id": "t1", "hook_event_name": "UserPromptSubmit", "prompt": "next", "session_title": "Fix login"})
+	var got struct {
+		H struct {
+			Event string `json:"hookEventName"`
+			Title string `json:"sessionTitle"`
+		} `json:"hookSpecificOutput"`
+	}
+	if err := json.Unmarshal([]byte(out), &got); err != nil || got.H.Title != "🟡 Fix login" || got.H.Event != "UserPromptSubmit" {
+		t.Fatalf("title not set: %q (%v)", out, err)
+	}
+	os.WriteFile(filepath.Join(home, "config.json"), []byte(`{"session_title_icon": false}`), 0o600)
+	if out := hook(map[string]any{"session_id": "t1", "hook_event_name": "UserPromptSubmit", "prompt": "x", "session_title": "Fix login"}); strings.Contains(out, "sessionTitle") {
+		t.Fatalf("title changed although turned off: %q", out)
+	}
+}
+
 func TestHookFailsOpenOnBadInput(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("PROVGUARD_HOME", home)
