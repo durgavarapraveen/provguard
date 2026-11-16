@@ -29,6 +29,7 @@ type Event struct {
 	AgentID    string          // subagent id; subagents share the parent's SessionID
 	AgentType  string          // subagent type
 	MCPServer  string          // MCP server name for MCP tools
+	MCPSource  string          // MCP server source, e.g. "sdk" for in-process servers
 	ToolInput  map[string]any  // decoded tool input
 	ToolOutput json.RawMessage // raw tool response, never logged as-is
 }

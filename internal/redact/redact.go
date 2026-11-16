@@ -35,6 +35,37 @@ var candidate = regexp.MustCompile(`[A-Za-z0-9+/_=-]{32,}`)
 // minEntropy is above log2(16)=4, so hex strings such as git SHAs stay visible.
 const minEntropy = 4.2
 
+// Match is one secret value found in a string.
+type Match struct {
+	Kind  string
+	Value string
+}
+
+// Find returns secret values in s. With all=false it uses only token formats
+// that rarely give false positives. With all=true it also uses key=value
+// assignments and high-entropy strings; use that for known-sensitive content.
+func Find(s string, all bool) []Match {
+	var out []Match
+	for _, r := range rules {
+		if r.kind == "assignment" && !all {
+			continue
+		}
+		for _, m := range r.re.FindAllStringSubmatch(s, -1) {
+			if v := m[r.group]; v != "" {
+				out = append(out, Match{r.kind, v})
+			}
+		}
+	}
+	if all {
+		for _, m := range candidate.FindAllString(s, -1) {
+			if entropy(m) > minEntropy {
+				out = append(out, Match{"high_entropy", m})
+			}
+		}
+	}
+	return out
+}
+
 // String returns s with secrets replaced by [REDACTED:<kind>].
 func String(s string) string {
 	for _, r := range rules {

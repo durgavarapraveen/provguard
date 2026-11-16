@@ -73,6 +73,72 @@ func TestHookFixturesLogOnlyAndRedact(t *testing.T) {
 	}
 }
 
+func TestNoRawSecretAnywhereAndSessionLabeled(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("PROVGUARD_HOME", home)
+	in, err := os.ReadFile(filepath.Join("..", "..", "testdata", "claudecode", "post_read.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if code := runHook(bytes.NewReader(in), &bytes.Buffer{}, ""); code != 0 {
+		t.Fatal("exit", code)
+	}
+	var sess map[string]any
+	b, err := os.ReadFile(filepath.Join(home, "sessions", "abc123.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(b, &sess); err != nil {
+		t.Fatal(err)
+	}
+	if sess["sensitive"] != true || sess["fingerprints"] == nil {
+		t.Fatalf("session not marked sensitive with fingerprints: %s", b)
+	}
+	_ = filepath.Walk(home, func(p string, info os.FileInfo, err error) error {
+		if err == nil && !info.IsDir() {
+			if c, _ := os.ReadFile(p); strings.Contains(string(c), "sup3rS3cret") {
+				t.Errorf("raw secret written to %s", p)
+			}
+		}
+		return nil
+	})
+}
+
+func TestHookDeniesSettingsTampering(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("PROVGUARD_HOME", home)
+	settings := filepath.Join(t.TempDir(), ".claude", "settings.json")
+	payload, _ := json.Marshal(map[string]any{
+		"session_id": "s1", "hook_event_name": "PreToolUse", "tool_name": "Write", "tool_use_id": "t1",
+		"tool_input": map[string]any{"file_path": settings, "content": `{"disableAllHooks": true}`},
+	})
+	var stdout bytes.Buffer
+	if code := runHook(bytes.NewReader(payload), &stdout, ""); code != 0 {
+		t.Fatal("exit", code)
+	}
+	var out struct {
+		H struct {
+			Decision string `json:"permissionDecision"`
+			Reason   string `json:"permissionDecisionReason"`
+		} `json:"hookSpecificOutput"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &out); err != nil || out.H.Decision != "deny" || out.H.Reason == "" {
+		t.Fatalf("expected deny, got %q (%v)", stdout.String(), err)
+	}
+	recs := readLog(t, home)
+	if len(recs) != 1 || recs[0].Decision != "deny" || recs[0].Rule != "self_protect_settings" {
+		t.Fatalf("deny not logged: %+v", recs)
+	}
+
+	// self_protect=false turns it off.
+	os.WriteFile(filepath.Join(home, "config.json"), []byte(`{"self_protect": false}`), 0o600)
+	stdout.Reset()
+	runHook(bytes.NewReader(payload), &stdout, "")
+	if stdout.Len() != 0 {
+		t.Fatal("self_protect=false still denied")
+	}
+}
+
 func TestHookFailsOpenOnBadInput(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("PROVGUARD_HOME", home)

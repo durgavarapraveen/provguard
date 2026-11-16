@@ -53,10 +53,9 @@ func main() {
 	}
 }
 
-// runHook never blocks the agent in week 1. It always returns 0 and writes
-// nothing to stdout, so Claude Code keeps its normal permission flow.
-// Returning "allow" here would skip the user's permission prompts.
-func runHook(stdin io.Reader, _ io.Writer, eventArg string) (code int) {
+// runHook always exits 0 (fail open). It prints a decision only to deny;
+// it never prints "allow", because that would skip the user's permission prompts.
+func runHook(stdin io.Reader, stdout io.Writer, eventArg string) (code int) {
 	start := time.Now()
 	rec := audit.Record{Agent: claudecode.Agent, Event: eventArg, Decision: "none"}
 	defer func() {
@@ -83,6 +82,7 @@ func runHook(stdin io.Reader, _ io.Writer, eventArg string) (code int) {
 	}
 	rec = audit.FromEvent(e)
 	rec.Decision = "none"
+	handle(e, stdout, &rec)
 	return 0
 }
 

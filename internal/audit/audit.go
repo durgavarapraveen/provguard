@@ -18,25 +18,30 @@ const maxString = 2048
 
 // Record is one audit log line.
 type Record struct {
-	Time          time.Time      `json:"ts"`
-	Agent         string         `json:"agent"`
-	Event         string         `json:"event"`
-	SessionID     string         `json:"session_id,omitempty"`
-	ToolUseID     string         `json:"tool_use_id,omitempty"`
-	ToolName      string         `json:"tool_name,omitempty"`
-	AgentID       string         `json:"agent_id,omitempty"`
-	AgentType     string         `json:"agent_type,omitempty"`
-	MCPServer     string         `json:"mcp_server,omitempty"`
-	Cwd           string         `json:"cwd,omitempty"`
-	Source        string         `json:"source,omitempty"`
-	Prompt        string         `json:"prompt,omitempty"`
-	PromptChars   int            `json:"prompt_chars,omitempty"`
-	ToolInput     map[string]any `json:"tool_input,omitempty"`
-	OutputBytes   int            `json:"output_bytes,omitempty"`
-	OutputSHA256  string         `json:"output_sha256,omitempty"`
-	Decision      string         `json:"decision"`
-	Error         string         `json:"error,omitempty"`
-	LatencyMicros int64          `json:"latency_us"`
+	Time         time.Time      `json:"ts"`
+	Agent        string         `json:"agent"`
+	Event        string         `json:"event"`
+	SessionID    string         `json:"session_id,omitempty"`
+	ToolUseID    string         `json:"tool_use_id,omitempty"`
+	ToolName     string         `json:"tool_name,omitempty"`
+	AgentID      string         `json:"agent_id,omitempty"`
+	AgentType    string         `json:"agent_type,omitempty"`
+	MCPServer    string         `json:"mcp_server,omitempty"`
+	Cwd          string         `json:"cwd,omitempty"`
+	Source       string         `json:"source,omitempty"`
+	Prompt       string         `json:"prompt,omitempty"`
+	PromptChars  int            `json:"prompt_chars,omitempty"`
+	ToolInput    map[string]any `json:"tool_input,omitempty"`
+	OutputBytes  int            `json:"output_bytes,omitempty"`
+	OutputSHA256 string         `json:"output_sha256,omitempty"`
+	Decision     string         `json:"decision"`
+	Rule         string         `json:"rule,omitempty"`
+	Labels       []string       `json:"labels,omitempty"`
+	// Session state after this event (PostToolUse / UserPromptSubmit only).
+	SessionTainted   bool   `json:"session_tainted,omitempty"`
+	SessionSensitive bool   `json:"session_sensitive,omitempty"`
+	Error            string `json:"error,omitempty"`
+	LatencyMicros    int64  `json:"latency_us"`
 }
 
 // FromEvent builds a redacted record. Tool output is kept as size and hash only.
