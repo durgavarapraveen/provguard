@@ -29,9 +29,10 @@ type payload struct {
 	ToolResponse   json.RawMessage `json:"tool_response"`
 	Source         string          `json:"source"`
 	Prompt         string          `json:"prompt"`
-	AgentID        string          `json:"agent_id"`   // set on subagent tool calls
-	AgentType      string          `json:"agent_type"` // set on subagent tool calls
-	MCPServer      *mcpServer      `json:"mcp_server"` // set on MCP tool calls (seen live, not in docs)
+	SessionTitle   string          `json:"session_title"` // SessionStart, UserPromptSubmit
+	AgentID        string          `json:"agent_id"`      // set on subagent tool calls
+	AgentType      string          `json:"agent_type"`    // set on subagent tool calls
+	MCPServer      *mcpServer      `json:"mcp_server"`    // set on MCP tool calls (seen live, not in docs)
 }
 
 // mcpServer was seen live as {"name":"ccd_turn","source":"sdk"}.
@@ -75,6 +76,7 @@ func Parse(raw []byte, eventArg string) (event.Event, error) {
 		Transcript: p.TranscriptPath,
 		Source:     p.Source,
 		Prompt:     p.Prompt,
+		Title:      p.SessionTitle,
 		AgentID:    p.AgentID,
 		AgentType:  p.AgentType,
 		MCPServer:  p.MCPServer.name(),

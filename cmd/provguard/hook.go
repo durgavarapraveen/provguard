@@ -2,12 +2,14 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"os/exec"
 	"strings"
 	"time"
 
 	"github.com/durgavarapraveen/provguard/internal/adapter/claudecode"
+	"github.com/durgavarapraveen/provguard/internal/allowonce"
 	"github.com/durgavarapraveen/provguard/internal/audit"
 	"github.com/durgavarapraveen/provguard/internal/config"
 	"github.com/durgavarapraveen/provguard/internal/doctor"
@@ -22,8 +24,26 @@ import (
 )
 
 // handle runs the per-event logic and fills rec. Errors go to rec.Error;
-// they never block the agent.
+// they never block the agent. A non-PreToolUse event whose labels changed
+// prints a one-time notice for the user (Claude Code's "systemMessage").
 func handle(e event.Event, stdout io.Writer, rec *audit.Record) {
+	var newTitle string
+	defer func() {
+		if e.Kind == event.PreTool {
+			return // PreToolUse prints only decisions (respond)
+		}
+		out := map[string]any{}
+		if rec.Notice != "" {
+			out["systemMessage"] = rec.Notice
+		}
+		if newTitle != "" {
+			out["hookSpecificOutput"] = map[string]any{"hookEventName": e.RawEvent, "sessionTitle": newTitle}
+		}
+		if len(out) > 0 {
+			b, _ := json.Marshal(out)
+			stdout.Write(b)
+		}
+	}()
 	home, err := audit.Home()
 	if err != nil {
 		rec.Error = err.Error()
@@ -33,6 +53,15 @@ func handle(e event.Event, stdout io.Writer, rec *audit.Record) {
 	if err != nil {
 		rec.Error = err.Error() + " (using the balanced profile until it is fixed)"
 		cfg = config.FailSafe()
+	}
+	// SessionStart and UserPromptSubmit may retitle the session: put the trust
+	// icon in front, so untrusted sessions stand out in the session list.
+	if (e.Kind == event.SessionBeg || e.Kind == event.UserPrompt) && cfg.TitleIconOn() {
+		defer func() {
+			if s, err := store.Get(home, e.SessionID); err == nil {
+				newTitle = titleWithIcon(e.Title, s.Tainted, s.Sensitive)
+			}
+		}()
 	}
 
 	switch e.Kind {
@@ -92,6 +121,24 @@ func handle(e event.Event, stdout io.Writer, rec *audit.Record) {
 		if r.Would != policy.None {
 			rec.Rule, rec.Reason = r.Rule, r.Reason
 		}
+		if r.Decision != policy.None {
+			// The user can approve this exact call once (provguard allow).
+			if key == nil {
+				key, _ = fingerprint.LoadOrCreate(home)
+			}
+			if key != nil {
+				tok := allowonce.Token(key, e.SessionID, e.ToolName, text)
+				if allowonce.Consume(home, tok, time.Now()) {
+					rec.Override = "allow_once:" + tok
+					return
+				}
+				if allowonce.Record(home, tok, allowonce.Pending{
+					Session: e.SessionID, Tool: e.ToolName, Command: text, Rule: r.Rule, Time: time.Now(),
+				}) == nil {
+					r.Reason += allowonce.Hint(tok)
+				}
+			}
+		}
 		switch r.Decision {
 		case policy.Deny:
 			respond(stdout, rec, claudecode.Deny, r.Rule, r.Reason)
@@ -104,6 +151,7 @@ func handle(e event.Event, stdout io.Writer, rec *audit.Record) {
 		}
 	case event.SessionBeg:
 		store.GC(home)
+		allowonce.GC(home, time.Now())
 		days := cfg.AuditRetentionDays
 		if days == 0 {
 			days = audit.DefaultRetentionDays
@@ -139,6 +187,7 @@ func configChanged(home string, e event.Event, rec *audit.Record) error {
 		return nil
 	}
 	rec.Rule, rec.Labels = "config_tamper", problems
+	rec.Notice = "provguard: hook settings changed during this session (" + strings.Join(problems, "; ") + "). The session is now marked untrusted."
 	return store.Update(home, e.SessionID, func(s *store.Session) error {
 		now := time.Now().UTC()
 		s.MarkTainted(store.Source{At: now, Tool: "ConfigChange", Reason: "config_tamper"})
@@ -171,6 +220,63 @@ func gitOutgoingDiff(cwd string) func() string {
 		out, _ := run("-n", "20")
 		return out
 	}
+}
+
+var titleIcons = []string{"🔴 ", "🟡 ", "🟠 ", "🟢 "}
+
+// titleWithIcon returns the title with the icon for the session's state in
+// front, or "" when no change is needed. A session without a title is left
+// alone, so the app still names it from the first prompt.
+func titleWithIcon(current string, tainted, sensitive bool) string {
+	if strings.TrimSpace(current) == "" {
+		return ""
+	}
+	base := current
+	for again := true; again; {
+		again = false
+		for _, ic := range titleIcons {
+			if strings.HasPrefix(base, ic) {
+				base, again = strings.TrimPrefix(base, ic), true
+			}
+		}
+	}
+	want := base
+	switch {
+	case tainted && sensitive:
+		want = "🔴 " + base
+	case tainted:
+		want = "🟡 " + base
+	case sensitive:
+		want = "🟠 " + base
+	}
+	if want == current {
+		return ""
+	}
+	return want
+}
+
+// transitionNotice describes a session that just became untrusted or
+// sensitive, or returns "" when nothing new happened.
+func transitionNotice(wasT, wasS bool, s *store.Session) string {
+	reason := func(src []store.Source) string {
+		if len(src) == 0 {
+			return "unknown"
+		}
+		return src[len(src)-1].Tool + ": " + src[len(src)-1].Reason
+	}
+	switch {
+	case s.Tainted && s.Sensitive && (!wasT || !wasS):
+		last := reason(s.SensitiveSources)
+		if !wasT {
+			last = reason(s.TaintSources)
+		}
+		return "provguard: 🔴 this session has now read untrusted content AND secrets. Sending data out is blocked (balanced/strict). Last: " + last
+	case s.Tainted && !wasT:
+		return "provguard: 🟡 this session is now UNTRUSTED (" + reason(s.TaintSources) + "). Risky actions will ask first."
+	case s.Sensitive && !wasS:
+		return "provguard: 🟠 this session has now seen SECRETS (" + reason(s.SensitiveSources) + ")."
+	}
+	return ""
 }
 
 // remoteTrusted returns a lookup: does a git remote (name or URL) of the repo
@@ -209,6 +315,8 @@ func untrustedRepoAtStart(home string, cfg config.Config, e event.Event, rec *au
 	reason := "repo_owner_at_start:" + owner
 	rec.Labels = []string{"untrusted:" + reason}
 	return store.Update(home, e.SessionID, func(s *store.Session) error {
+		wasT, wasS := s.Tainted, s.Sensitive
+		defer func() { rec.Notice = transitionNotice(wasT, wasS, s) }()
 		now := time.Now().UTC()
 		s.MarkTainted(store.Source{At: now, Tool: "SessionStart", Reason: reason})
 		s.AddStep(store.Step{At: now, Event: e.RawEvent, Labels: rec.Labels})
@@ -263,6 +371,8 @@ func applyLabels(home string, cfg config.Config, e event.Event, rec *audit.Recor
 		key, keyErr = fingerprint.LoadOrCreate(home)
 	}
 	return store.Update(home, e.SessionID, func(s *store.Session) error {
+		wasT, wasS := s.Tainted, s.Sensitive
+		defer func() { rec.Notice = transitionNotice(wasT, wasS, s) }()
 		for k, v := range snap.RepoOwners {
 			if s.RepoOwners == nil {
 				s.RepoOwners = map[string]string{}

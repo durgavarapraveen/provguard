@@ -78,13 +78,33 @@ provguard starts in the **`audit` profile**: it logs what it *would* block and b
 | 5 | Reverse shell, or risky deletion (outside the project, history rewrites on shared branches, remote deletes) | ask |
 | 6 | Anything else | no decision (normal Claude Code permissions) |
 
-4. **Self-protection** (every profile): agents cannot change hook or command settings in any `.claude/settings*.json`, write to `~/.provguard/`, read its key or session files, or run `provguard init`, `uninstall` or `reset`. Paths are checked as the OS resolves them, so junctions, symlinks and Windows path tricks do not get around it.
+4. **When you still want to send it.** A block is not the last word:
+   - **Once:** the block message ends with a token. Run `provguard allow <token>` in your own terminal, then let the agent retry. That exact call, in that session, passes one time within 10 minutes. Agents cannot run `provguard allow`, and cannot compute a token for a call that was never blocked (it is an HMAC with your install key).
+   - **Always, for your own hosts:** add them to `allowed_hosts`. Data sent to those hosts (and their subdomains) does not count as leaving.
+   - **Decide each time:** `"block_mode": "ask"` turns the deny rules (1 and 2) into Claude Code's approval prompt in `balanced`. `strict` ignores it, and self-protection always denies.
+5. **Self-protection** (every profile): agents cannot change hook or command settings in any `.claude/settings*.json`, write to `~/.provguard/`, read its key or session files, or run `provguard init`, `uninstall`, `reset` or `allow`. Paths are checked as the OS resolves them, so junctions, symlinks and Windows path tricks do not get around it.
 
 | Profile | Behavior |
 |---|---|
 | `audit` (default) | Never blocks. The log records `"would": "deny"` or `"ask"`. |
 | `balanced` | The table above. |
 | `strict` | Every "ask" becomes "deny", and checks that cannot run fail closed. |
+
+## Seeing a session's trust state
+
+| Where | How |
+|---|---|
+| Everywhere hooks run | A one-time notice when a session becomes untrusted or sensitive (Claude Code `systemMessage`) |
+| Claude Code CLI | A colored status line: 🟢 clean · 🟡 untrusted · 🟠 sensitive · 🔴 both, plus the profile |
+| Any terminal | `provguard status` (`--json` for scripts, `--plain` without colors) |
+| Claude desktop app | The `provguard-badge` mod: a status entry and a toast on each change |
+| Session list (sidebar) | The session title gets the icon in front, e.g. `🔴 Fix login`, on your next prompt. Turn off with `"session_title_icon": false`. A session without a title yet is left alone. |
+
+Status line: add this to `~/.claude/settings.json` yourself (provguard blocks agents from editing `statusLine`, because it runs a command):
+
+```json
+"statusLine": { "type": "command", "command": "\"C:/Users/you/.provguard/bin/provguard.exe\" status" }
+```
 
 ## Benchmark
 
@@ -120,6 +140,7 @@ Method, per-case results and caveats (the traces are author-written; real-agent 
 | `provguard uninstall [--yes]` | Remove hooks |
 | `provguard doctor [dir] [--json]` | Check hook integrity; scan a repo for settings that turn hooks off, repo hooks, `.mcp.json` servers and risky instruction files. Exits 1 on HIGH. |
 | `provguard explain [session\|latest]` | Why a session is untrusted or sensitive, and every policy hit |
+| `provguard allow <token>` | Let one blocked call through once, within 10 minutes (you only, not agents) |
 | `provguard reset [session\|latest] --yes` | Clear a session's untrusted label after you checked it (you only, not agents) |
 | `provguard demo` | One normal task and two attacks, narrated, in a temp folder |
 | `provguard bench [--check] [--live]` | The attack and false-positive benchmark |
@@ -133,12 +154,15 @@ Method, per-case results and caveats (the traces are author-written; real-agent 
   "profile": "audit",
   "trusted_repo_owners": ["your-github-user"],
   "trusted_mcp_servers": ["github"],
-  "allowed_hosts": ["docs.python.org"],
+  "allowed_hosts": ["docs.python.org", "api.mycorp.com"],
+  "block_mode": "deny",
   "trust_sdk_mcp_servers": true,
   "self_protect": true,
   "audit_retention_days": 30
 }
 ```
+
+`allowed_hosts` means two things: content fetched from these hosts is trusted, and data sent to them does not count as leaving. List only hosts you control or fully trust.
 
 If `config.json` cannot be parsed, or `profile` is misspelled, provguard enforces `balanced` (not `audit`) until you fix it, and `provguard doctor` reports the problem.
 
@@ -148,6 +172,7 @@ If `config.json` cannot be parsed, or `profile` is misspelled, provguard enforce
 | `~/.provguard/sessions/<id>.json` | Session labels, untrusted URLs/hosts, secret fingerprints |
 | `~/.provguard/key` | Per-install HMAC key |
 | `~/.provguard/bin/` | The binary the hooks run |
+| `~/.provguard/allow/` | Pending blocks and one-time grants (redacted; deleted after 10 minutes) |
 
 Set `PROVGUARD_HOME` to use another folder.
 
