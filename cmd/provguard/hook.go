@@ -69,7 +69,10 @@ func handle(e event.Event, stdout io.Writer, rec *audit.Record) {
 		if len(snap.Fingerprints) > 0 {
 			key, _ = fingerprint.LoadOrCreate(home)
 		}
-		r := policy.Evaluate(policy.Input{Tool: e.ToolName, Sinks: sinks, Text: text, Session: snap, Key: key, Config: cfg})
+		r := policy.Evaluate(policy.Input{
+			Tool: e.ToolName, Sinks: sinks, Text: text, Session: snap, Key: key, Config: cfg,
+			Cwd: e.Cwd, RemoteTrusted: remoteTrusted(cfg, e.Cwd),
+		})
 		rec.Profile, rec.Would = cfg.ProfileName(), r.Would
 		if r.Would != policy.None {
 			rec.Rule, rec.Reason = r.Rule, r.Reason
@@ -86,7 +89,54 @@ func handle(e event.Event, stdout io.Writer, rec *audit.Record) {
 		}
 	case event.SessionBeg:
 		store.GC(home)
+		if err := untrustedRepoAtStart(home, cfg, e, rec); err != nil {
+			rec.Error = err.Error()
+		}
 	}
+}
+
+// remoteTrusted returns a lookup: does a git remote (name or URL) of the repo
+// at cwd belong to a trusted owner?
+func remoteTrusted(cfg config.Config, cwd string) func(string) bool {
+	if len(cfg.TrustedRepoOwners) == 0 {
+		return nil
+	}
+	return func(remote string) bool {
+		owner := ""
+		if strings.Contains(remote, "://") || strings.Contains(remote, "@") {
+			owner = label.URLOwner(remote)
+		} else if root := label.RepoRoot(cwd + "/x"); root != "" {
+			owner = label.RemoteOwner(root, remote)
+		}
+		return owner != "" && cfg.RepoOwnerTrusted(owner)
+	}
+}
+
+// untrustedRepoAtStart marks a session untrusted when it starts in a repo whose
+// origin owner is not trusted. Claude Code loads that repo's CLAUDE.md /
+// AGENTS.md into context without a tool call, so no later hook would see it
+// (benchmark case 08).
+func untrustedRepoAtStart(home string, cfg config.Config, e event.Event, rec *audit.Record) error {
+	if len(cfg.TrustedRepoOwners) == 0 || e.Cwd == "" || e.SessionID == "" {
+		return nil
+	}
+	root := label.RepoRoot(e.Cwd + "/x")
+	if root == "" {
+		return nil
+	}
+	owner := label.OriginOwner(root)
+	if owner == "" || cfg.RepoOwnerTrusted(owner) {
+		return nil
+	}
+	reason := "repo_owner_at_start:" + owner
+	rec.Labels = []string{"untrusted:" + reason}
+	return store.Update(home, e.SessionID, func(s *store.Session) error {
+		now := time.Now().UTC()
+		s.MarkTainted(store.Source{At: now, Tool: "SessionStart", Reason: reason})
+		s.AddStep(store.Step{At: now, Event: e.RawEvent, Labels: rec.Labels})
+		rec.SessionTainted = true
+		return nil
+	})
 }
 
 // respond prints a PreToolUse decision and records it.

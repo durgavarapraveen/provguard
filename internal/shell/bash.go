@@ -63,7 +63,14 @@ func (b *bashAn) stmt(s *syntax.Stmt) {
 		// (reverse shells, raw exfil). That is EGRESS, not a file write.
 		if r.Word != nil {
 			if v, _ := b.word(r.Word); strings.HasPrefix(v, "/dev/tcp/") || strings.HasPrefix(v, "/dev/udp/") {
-				b.a.sink(Egress, "dev_tcp", strings.TrimPrefix(strings.TrimPrefix(v, "/dev/tcp/"), "/dev/udp/"))
+				target := strings.TrimPrefix(strings.TrimPrefix(v, "/dev/tcp/"), "/dev/udp/")
+				b.a.sink(Egress, "dev_tcp", target)
+				// A shell or interpreter wired to a socket, or a socket read
+				// as input, is a reverse shell: remote code execution.
+				if p := stdinProgram(s); shells[p] || interpreters[p] ||
+					r.Op == syntax.RdrIn || r.Op == syntax.RdrInOut || r.Op == syntax.DplIn {
+					b.a.sink(ExecRemote, "reverse_shell", target)
+				}
 				continue
 			}
 		}
