@@ -225,6 +225,51 @@ func afterCode(args []string, flags map[string]bool) []string {
 var scriptRunners = set("python", "python3", "python2", "py", "node", "nodejs", "bun", "ruby", "perl",
 	"php", "lua", "tclsh", "sh", "bash", "zsh", "dash", "ksh", "fish", "pwsh", "powershell", "source", ".", "rscript", "osascript")
 
+// posixShells share the sh option syntax (see shellScript). fish does not,
+// so it stays with the generic interpreter rules.
+var posixShells = set("sh", "bash", "zsh", "dash", "ksh")
+
+// shellScript parses a POSIX shell's options and returns the script file it
+// runs, or "" when it runs none: code from -c (checked elsewhere), stdin
+// (-s, or no file), or noexec (-n, -o noexec), which only checks syntax.
+// Options start with - or +; +n and +o noexec turn noexec off again.
+// Review finding: the generic interpreter loop took -e (errexit) for
+// node's inline-code -e, so `bash -e x.sh` skipped the script scan, and it
+// took +n for the script name.
+func shellScript(args []string) string {
+	noexec := false
+	for i := 0; i < len(args); i++ {
+		x := args[i]
+		switch {
+		case x == "--" || x == "-":
+			if i+1 < len(args) && !noexec {
+				return args[i+1]
+			}
+			return ""
+		case x == "-o" || x == "+o" || x == "-O" || x == "+O": // bash -O/+O: shopt options
+			if i+1 < len(args) && args[i+1] == "noexec" && (x == "-o" || x == "+o") {
+				noexec = x == "-o"
+			}
+			i++
+		case strings.HasPrefix(x, "--"):
+			// long options (--norc, --posix, --login) take no value
+		case len(x) > 1 && (x[0] == '-' || x[0] == '+'):
+			if x[0] == '-' && strings.ContainsAny(x[1:], "cs") {
+				return "" // code from an argument or from stdin
+			}
+			if strings.ContainsRune(x[1:], 'n') {
+				noexec = x[0] == '-'
+			}
+		default:
+			if noexec {
+				return ""
+			}
+			return x
+		}
+	}
+	return ""
+}
+
 // ScriptFiles returns files that a command will run as code: a script given
 // to an interpreter or shell, a Makefile, or package.json scripts. Callers
 // can read them; the analyzer itself never reads files.
@@ -258,6 +303,12 @@ func ScriptFiles(c Cmd) []string {
 		}
 		return nil
 	case scriptRunners[c.Name]:
+		if posixShells[c.Name] {
+			if f := shellScript(args); f != "" {
+				return []string{f}
+			}
+			return nil
+		}
 		for i := 0; i < len(args); i++ {
 			x := args[i]
 			if x == "-c" || x == "-e" || x == "-E" || x == "-r" || x == "-m" || x == "--eval" || x == "-" {
@@ -1015,8 +1066,55 @@ func ghCmd(a *Analysis, args []string) {
 		return
 	}
 	if ghWrite[pos[0]][pos[1]] {
-		a.sink(Egress, "gh_"+pos[0]+"_"+pos[1], "")
+		target := ""
+		if ghRepoScoped[pos[0]] && !ghNewPlace[pos[0]+" "+pos[1]] {
+			target = GHRepoTarget(ghRepo(args))
+		}
+		a.sink(Egress, "gh_"+pos[0]+"_"+pos[1], target)
 	}
+}
+
+// ghRepoScoped: gh command groups whose writes go to one repository, either
+// the -R/--repo flag or the repository of the current folder.
+var ghRepoScoped = map[string]bool{
+	"issue": true, "pr": true, "release": true, "secret": true,
+	"variable": true, "workflow": true, "repo": true,
+}
+
+// ghNewPlace: writes that create a new place (a new or forked repository),
+// so they are never "your existing repository". gist is not repo-scoped.
+var ghNewPlace = map[string]bool{"repo create": true, "repo fork": true}
+
+// GHRepoPrefix marks a sink target that names the repository a gh command
+// writes to: "gh-repo:OWNER/REPO", "gh-repo:." for the current folder's
+// repository, or "gh-repo:?" when it is not known before run time.
+const GHRepoPrefix = "gh-repo:"
+
+// GHRepoTarget builds the sink target for repo ("" = the current folder).
+func GHRepoTarget(repo string) string {
+	switch {
+	case repo == "":
+		return GHRepoPrefix + "."
+	case strings.ContainsAny(repo, "$`(){}"):
+		return GHRepoPrefix + "?" // set at run time
+	}
+	return GHRepoPrefix + repo
+}
+
+// ghRepo returns the value of -R/--repo, or "".
+func ghRepo(args []string) string {
+	for i, x := range args {
+		if v, ok := strings.CutPrefix(x, "--repo="); ok {
+			return v
+		}
+		if (x == "-R" || x == "--repo") && i+1 < len(args) {
+			return args[i+1]
+		}
+		if v, ok := strings.CutPrefix(x, "-R"); ok && v != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 // apiMethod returns the upper-case HTTP method of a `gh api` call (default GET).
