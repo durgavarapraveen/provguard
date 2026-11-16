@@ -46,6 +46,12 @@ type Input struct {
 	// RemoteTrusted reports whether a git remote (name or URL) belongs to a
 	// trusted owner. nil means "never trusted".
 	RemoteTrusted func(remote string) bool
+
+	// GHRepoTrusted reports whether a gh command's target repository
+	// ("OWNER/REPO", or "." for the current folder's) belongs to a trusted
+	// owner. It may ask GitHub, so it is called only when a rule needs it.
+	// nil means "no repository is trusted".
+	GHRepoTrusted func(repo string) bool
 	// OutgoingDiff returns the commits a git push would send (patch text).
 	// Used only when the session holds secrets. nil means "unknown".
 	OutgoingDiff func() string
@@ -124,7 +130,12 @@ func evaluate(in Input) Result {
 		}
 	}
 
-	egress := externalEgress(in)
+	// Rules 2 and 3 need the external egress; work it out only for them,
+	// because the gh repository check can ask GitHub.
+	var egress []shell.Sink
+	if s.Tainted && s.Sensitive || len(s.UntrustedValues) > 0 {
+		egress = externalEgress(in)
+	}
 
 	// 2. Lethal trifecta.
 	if len(egress) > 0 && s.Tainted && s.Sensitive {
@@ -189,6 +200,9 @@ func externalEgress(in Input) []shell.Sink {
 			continue // following links: only rule 1 applies
 		case s.Detail == "git_push" && in.RemoteTrusted != nil && in.RemoteTrusted(gitRemote(s.Target)):
 			continue // pushing to your own repository
+		case strings.HasPrefix(s.Target, shell.GHRepoPrefix) && in.GHRepoTrusted != nil &&
+			in.GHRepoTrusted(strings.TrimPrefix(s.Target, shell.GHRepoPrefix)):
+			continue // a pull request, issue or release in your own repository
 		case isLocal(s.Target) && !in.Config.LocalhostIsExternal:
 			continue // localhost: dev servers, local APIs
 		case allowedTarget(in.Config, s.Target):
