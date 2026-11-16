@@ -8,8 +8,10 @@ import (
 	"github.com/durgavarapraveen/provguard/internal/adapter/claudecode"
 	"github.com/durgavarapraveen/provguard/internal/audit"
 	"github.com/durgavarapraveen/provguard/internal/config"
+	"github.com/durgavarapraveen/provguard/internal/doctor"
 	"github.com/durgavarapraveen/provguard/internal/event"
 	"github.com/durgavarapraveen/provguard/internal/fingerprint"
+	"github.com/durgavarapraveen/provguard/internal/install"
 	"github.com/durgavarapraveen/provguard/internal/label"
 	"github.com/durgavarapraveen/provguard/internal/policy"
 	"github.com/durgavarapraveen/provguard/internal/protect"
@@ -42,6 +44,12 @@ func handle(e event.Event, stdout io.Writer, rec *audit.Record) {
 			}
 			text, _ = e.ToolInput["command"].(string)
 			an = shell.Analyze(text, d)
+			sinks = an.Sinks
+		} else if cmd, ok := label.CommandTool(e); ok {
+			// MCP tools that run shell commands (e.g. the desktop app's
+			// terminal tool): unknown shell, so both readings count.
+			text = cmd
+			an = shell.AnalyzeUnknown(cmd)
 			sinks = an.Sinks
 		} else {
 			sinks, text = policy.ToolSinks(e, cfg)
@@ -92,7 +100,40 @@ func handle(e event.Event, stdout io.Writer, rec *audit.Record) {
 		if err := untrustedRepoAtStart(home, cfg, e, rec); err != nil {
 			rec.Error = err.Error()
 		}
+	default:
+		if e.RawEvent == "ConfigChange" {
+			if err := configChanged(home, e, rec); err != nil {
+				rec.Error = err.Error()
+			}
+		}
 	}
+}
+
+// configChanged re-checks hook integrity when settings change mid-session
+// (finding F4: edits take effect at once). It cannot undo the change, so it
+// records tampering and marks the session untrusted.
+func configChanged(home string, e event.Event, rec *audit.Record) error {
+	settings, err := install.DefaultSettingsPath()
+	if err != nil {
+		return err
+	}
+	var problems []string
+	for _, f := range doctor.HookIntegrity(doctor.Options{Home: home, UserSettings: settings, Repo: e.Cwd, Events: claudecode.Events}) {
+		if f.Severity == doctor.High {
+			problems = append(problems, f.Message)
+		}
+	}
+	if len(problems) == 0 || e.SessionID == "" {
+		return nil
+	}
+	rec.Rule, rec.Labels = "config_tamper", problems
+	return store.Update(home, e.SessionID, func(s *store.Session) error {
+		now := time.Now().UTC()
+		s.MarkTainted(store.Source{At: now, Tool: "ConfigChange", Reason: "config_tamper"})
+		s.AddStep(store.Step{At: now, Event: e.RawEvent, Labels: []string{"untrusted:config_tamper"}})
+		rec.SessionTainted = true
+		return nil
+	})
 }
 
 // remoteTrusted returns a lookup: does a git remote (name or URL) of the repo

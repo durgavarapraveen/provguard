@@ -113,8 +113,73 @@ func Remove(s map[string]any) int {
 	return removed
 }
 
+// Options change how hooks are written.
+type Options struct {
+	// FailClosed adds "onFailure": "block" to PreToolUse, so a crashed or
+	// timed-out hook blocks the call (strict profile; finding F2).
+	FailClosed bool
+}
+
 // Add replaces any old provguard hooks with fresh entries for exe.
 func Add(s map[string]any, exe string, events []string) error {
+	return AddWith(s, exe, events, Options{})
+}
+
+// AddWith is Add with options.
+func AddWith(s map[string]any, exe string, events []string, o Options) error {
+	if err := add(s, exe, events); err != nil {
+		return err
+	}
+	if o.FailClosed {
+		hooks := s["hooks"].(map[string]any)
+		for _, g := range hooks["PreToolUse"].([]any) {
+			for _, h := range g.(map[string]any)["hooks"].([]any) {
+				hm := h.(map[string]any)
+				if cmd, _ := hm["command"].(string); IsProvguard(cmd) {
+					hm["onFailure"] = "block"
+				}
+			}
+		}
+	}
+	return nil
+}
+
+// CopyBinary installs the running binary as <home>/bin/provguard[.exe] and
+// returns that path. Self-protection guards <home>, so an agent cannot
+// replace the program its hooks run. A running copy on Windows cannot be
+// overwritten but can be renamed, so the old file is moved aside first.
+func CopyBinary(src, home string) (string, error) {
+	b, err := os.ReadFile(src)
+	if err != nil {
+		return "", err
+	}
+	dir := filepath.Join(home, "bin")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", err
+	}
+	dst := filepath.Join(dir, "provguard"+filepath.Ext(src))
+	if same, _ := filepath.Abs(src); strings.EqualFold(same, dst) {
+		return dst, nil
+	}
+	tmp := dst + ".new"
+	if err := os.WriteFile(tmp, b, 0o700); err != nil {
+		return "", err
+	}
+	if _, err := os.Stat(dst); err == nil {
+		old := dst + ".old"
+		os.Remove(old) // may fail if a hook still runs it; then rename fails below
+		if err := os.Rename(dst, old); err != nil {
+			os.Remove(tmp)
+			return "", fmt.Errorf("move old binary aside: %w", err)
+		}
+	}
+	if err := os.Rename(tmp, dst); err != nil {
+		return "", err
+	}
+	return dst, nil
+}
+
+func add(s map[string]any, exe string, events []string) error {
 	Remove(s)
 	hooks, ok := s["hooks"].(map[string]any)
 	if !ok {

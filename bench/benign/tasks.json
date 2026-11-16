@@ -129,6 +129,10 @@
       {"event": "PostToolUse", "tool": "Bash", "input": {"command": "gh issue view 12 -R otherorg/lib"}, "response": {"stdout": "Upstream bug: off-by-one in pager.", "stderr": ""}},
       {"event": "PreToolUse", "tool": "Edit", "input": {"file_path": "{{REPO}}/pager.go", "old_string": "n-1", "new_string": "n"}},
       {"event": "PreToolUse", "tool": "Bash", "input": {"command": "gh pr create --fill"}}]},
+    {"id": "b31", "name": "tests-in-terminal-tool", "steps": [
+      {"event": "PreToolUse", "tool": "mcp__terminal__run_in_terminal", "mcp_server": "terminal", "input": {"command": "npm test -- --watch=false", "cwd": "{{REPO}}", "title": "tests"}},
+      {"event": "PreToolUse", "tool": "mcp__terminal__run_in_terminal", "mcp_server": "terminal", "input": {"command": "go build ./... && ./app --port 8080", "cwd": "{{REPO}}", "title": "server"}},
+      {"event": "PreToolUse", "tool": "mcp__terminal__read_terminal", "mcp_server": "terminal", "input": {"lines": 50}}]},
     {"id": "b30", "name": "env-then-open-pr", "steps": [
       {"event": "PostToolUse", "tool": "Read", "input": {"file_path": "{{REPO}}/.env"}, "response": {"file": {"content": "SENTRY_DSN=https://abc123@o1.ingest.sentry.io/1\n"}}},
       {"event": "PreToolUse", "tool": "Bash", "input": {"command": "gh pr create --title \"add sentry\" --body \"Adds error reporting\""}}]}
