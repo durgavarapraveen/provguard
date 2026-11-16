@@ -87,6 +87,7 @@ func HookIntegrity(o Options) []Finding {
 			out = append(out, Finding{Medium, "binary", ev + " hook runs " + bin + ", outside provguard's protected folder; an agent could replace it (run provguard init --yes)"})
 		}
 	}
+	out = append(out, failClosedFindings(o, hooks)...)
 	if o.Repo != "" {
 		for _, name := range []string{"settings.json", "settings.local.json"} {
 			p := filepath.Join(o.Repo, ".claude", name)
@@ -111,6 +112,53 @@ func HookIntegrity(o Options) []Finding {
 		}
 	}
 	return out
+}
+
+// failClosedFindings reports when the installed PreToolUse hook does not
+// match the profile. `provguard init` writes "onFailure": "block" only for
+// strict, so switching the profile in config.json afterwards leaves the
+// setting behind. Review finding (LOW): a hook that times out is a way
+// through, and nothing said so.
+func failClosedFindings(o Options, hooks map[string]any) []Finding {
+	if o.Home == "" {
+		return nil
+	}
+	cfg, err := config.Load(o.Home)
+	if err != nil {
+		return nil // reported as a config finding elsewhere
+	}
+	blocks := provguardOnFailureBlock(hooks, "PreToolUse")
+	switch cfg.ProfileName() {
+	case config.Strict:
+		if !blocks {
+			return []Finding{{Medium, "hooks", `profile is strict but the PreToolUse hook has no "onFailure": "block", so a hook that times out lets the call through (run provguard init --yes)`}}
+		}
+	case config.Balanced:
+		if !blocks {
+			return []Finding{{Info, "hooks", "a PreToolUse hook that times out does not block the call in balanced; a check that crashes still blocks once the session has read untrusted content and secrets (strict blocks either way)"}}
+		}
+	}
+	return nil
+}
+
+// provguardOnFailureBlock reports whether provguard's hook for ev is set to
+// block when it fails.
+func provguardOnFailureBlock(hooks map[string]any, ev string) bool {
+	groups, _ := hooks[ev].([]any)
+	for _, g := range groups {
+		gm, _ := g.(map[string]any)
+		inner, _ := gm["hooks"].([]any)
+		for _, h := range inner {
+			hm, _ := h.(map[string]any)
+			if c, _ := hm["command"].(string); !install.IsProvguard(c) {
+				continue
+			}
+			if f, _ := hm["onFailure"].(string); strings.EqualFold(f, "block") {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func provguardCommand(hooks map[string]any, ev string) string {
@@ -235,10 +283,43 @@ func ScanRepo(repo, home string) []Finding {
 	if err != nil {
 		cfg = config.FailSafe() // what the hooks use while config.json is broken
 	}
+	out = append(out, contentTrustFindings(cfg)...)
 	if !cfg.ProfileKnown() {
 		out = append(out, Finding{Medium, "config", "unknown profile " + strconvQuote(cfg.Profile) + "; provguard uses balanced (valid: audit, balanced, strict)"})
 	}
 	out = append(out, Finding{Info, "profile", "active profile: " + cfg.ProfileName()})
+	return out
+}
+
+// publicContentHosts serve text and code that anyone can publish, so
+// trusting their content turns the untrusted label off for the places
+// injected instructions actually come from.
+var publicContentHosts = map[string]bool{
+	"github.com": true, "gist.github.com": true, "raw.githubusercontent.com": true,
+	"gitlab.com": true, "bitbucket.org": true, "githubusercontent.com": true,
+	"pastebin.com": true, "gitea.com": true, "codeberg.org": true,
+	"npmjs.com": true, "pypi.org": true, "stackoverflow.com": true,
+	"reddit.com": true, "medium.com": true, "x.com": true, "twitter.com": true,
+}
+
+// contentTrustFindings reports trusted_content_hosts entries that are too
+// broad to mean anything, and entries that look like they were meant for
+// allowed_hosts (review finding: the two lists used to be one).
+func contentTrustFindings(cfg config.Config) []Finding {
+	var out []Finding
+	for _, h := range cfg.TrustedContentHosts {
+		n := strings.ToLower(strings.Trim(strings.TrimSpace(h), "."))
+		switch {
+		case n == "":
+			continue
+		case !strings.Contains(n, "."):
+			out = append(out, Finding{Medium, "trust", "trusted_content_hosts has " + strconvQuote(h) +
+				", which matches every host under it: content from anywhere there is treated as yours"})
+		case publicContentHosts[n]:
+			out = append(out, Finding{Medium, "trust", "trusted_content_hosts has " + strconvQuote(h) +
+				", where anyone can publish: injected instructions fetched from it would not taint the session"})
+		}
+	}
 	return out
 }
 

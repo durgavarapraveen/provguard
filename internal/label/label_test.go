@@ -72,15 +72,21 @@ func TestPostLabels(t *testing.T) {
 	}
 }
 
-func TestWebFetchAllowedHost(t *testing.T) {
+func TestWebFetchTrustedContentHost(t *testing.T) {
+	trust := config.Config{TrustedContentHosts: []string{"example.com"}}
 	e := post("WebFetch", map[string]any{"url": "https://docs.example.com/a"}, map[string]any{"result": "x"})
-	r := Post(e, Env{Config: config.Config{AllowedHosts: []string{"example.com"}}})
-	if r.Untrusted {
-		t.Fatal("subdomain of allowed host should be trusted")
+	if r := Post(e, Env{Config: trust}); r.Untrusted {
+		t.Fatal("subdomain of a trusted content host should be trusted")
 	}
 	e = post("WebFetch", map[string]any{"url": "https://example.com.evil.test/a"}, map[string]any{"result": "x"})
-	if r := Post(e, Env{Config: config.Config{AllowedHosts: []string{"example.com"}}}); !r.Untrusted {
+	if r := Post(e, Env{Config: trust}); !r.Untrusted {
 		t.Fatal("look-alike host must stay untrusted")
+	}
+	// Review finding (MED): allowed_hosts is an egress list only. Letting
+	// the agent upload to a host must not trust what that host serves.
+	e = post("WebFetch", map[string]any{"url": "https://docs.example.com/a"}, map[string]any{"result": "x"})
+	if r := Post(e, Env{Config: config.Config{AllowedHosts: []string{"example.com"}}}); !r.Untrusted {
+		t.Fatal("allowed_hosts must not trust fetched content")
 	}
 }
 
@@ -151,9 +157,13 @@ func TestGitHubReadOfTrustedRepo(t *testing.T) {
 		{"gh pr view 1 -R me/x --json state; gh issue view 9 -R attacker/y", true}, // every call must be trusted
 		{"gh repo view", false},
 		{"gh run view 123 --log", true},
-		{"gh issue view 9 --repo stranger/lib", true}, // someone else's repo
-		{"gh api repos/stranger/lib/issues/1", true},  // someone else's repo
-		{"gh api repos/me/app/pulls", false},          // own repo via API
+		{"gh issue view 9 --repo stranger/lib", true},     // someone else's repo
+		{"gh api repos/stranger/lib/issues/1", true},      // someone else's repo
+		{"gh api repos/me/app/pulls", true},               // a contributor's branch and text
+		{"gh api repos/me/app/pulls/4/files", true},       // the PR's own diff
+		{"gh api repos/me/app/actions/runs", false},       // own repo, no outsider text
+		{"gh pr checkout 4", true},                        // puts a contributor's branch in the tree
+		{"gh pr view 1 -R me/x --json headRefName", true}, // a branch name the contributor chose
 		{"gh pr view https://github.com/stranger/x/pull/2", true},
 		{"curl https://api.github.com/repos/me/app", true}, // not gh: still a fetch
 	}

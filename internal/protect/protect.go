@@ -11,6 +11,7 @@ package protect
 
 import (
 	"encoding/json"
+	"io"
 	"os"
 	"path"
 	"path/filepath"
@@ -41,7 +42,7 @@ func Check(e event.Event, home string, an *shell.Analysis) Verdict {
 	switch e.ToolName {
 	case "Read", "Grep", "NotebookRead":
 		for _, k := range []string{"file_path", "path", "notebook_path"} {
-			if p, _ := e.ToolInput[k].(string); p != "" && secretPath(p, home, e.Cwd) {
+			if p, _ := e.ToolInput[k].(string); p != "" && secretPath(p, home, e.Cwd, true) {
 				return deny("self_protect_secret", "blocked reading provguard's key or session files ("+p+")")
 			}
 		}
@@ -199,24 +200,40 @@ func protectedPath(p, op, home, cwd string, cds []string) string {
 	return ""
 }
 
+// maxDeepArgs caps the OS lookups spent on one command's arguments.
+const maxDeepArgs = 16
+
+// looksLikePath: an argument that can name a file, so it is worth resolving
+// through the OS. Options ("-r", "--json") and bare words are not.
+func looksLikePath(a string) bool {
+	if a == "" || strings.HasPrefix(a, "-") {
+		return false
+	}
+	return strings.ContainsAny(a, `/\~`) || strings.HasPrefix(a, ".") ||
+		len(a) > 1 && a[1] == ':' || strings.Contains(a, "$")
+}
+
 // listOnly commands show file names, not contents.
 var listOnly = map[string]bool{"ls": true, "dir": true, "get-childitem": true, "gci": true, "tree": true, "stat": true, "test-path": true, "du": true}
 
 // secretPath: provguard's HMAC key or its session files (which hold secret
 // fingerprints and the taint history). Review finding (LOW): agents could
 // read them, because self-protection only blocked writes.
-func secretPath(p, home, cwd string) bool {
+func secretPath(p, home, cwd string, deep bool) bool {
 	lp := strings.ToLower(p)
 	if strings.Contains(lp, "://") {
 		return false // URLs
 	}
-	// The OS lookup (canonical) is costly, so run it only for names that can
-	// be the key or a session file: base "key", or a path naming sessions or
-	// provguard. (A junction renamed to something else that points at the
-	// sessions folder is not caught; reading needs no protection as strong as
-	// writing does.)
+	// The OS lookup (canonical) costs about 0.4 ms, so it runs for a name
+	// that can be the key or a session file (base "key", or a path naming
+	// sessions or provguard) and, when deep is set, for any name at all.
+	// Review finding (LOW): the name test alone missed a junction or symlink
+	// renamed to something else, which is all it takes to read the session
+	// files. The tools that read one named file ask for the deep check; a
+	// shell command's arguments share a budget, because there can be many.
 	base := path.Base(norm(p))
-	if base != "key" && !strings.Contains(lp, "session") && !strings.Contains(lp, "provguard") {
+	cheap := base == "key" || strings.Contains(lp, "session") || strings.Contains(lp, "provguard")
+	if !cheap && !deep {
 		return false
 	}
 	for _, f := range pathForms(p, cwd, nil) {
@@ -400,10 +417,29 @@ func checkToolPaths(e event.Event, home string) Verdict {
 
 // protectedText finds references to protected things inside code that
 // provguard cannot analyze (python -c, eval, iex, script files).
-var protectedText = regexp.MustCompile(`(?i)disableAllHooks|allowManagedHooksOnly|\.claude[\\/]+settings(?:\.local)?\.json|\.provguard\b|provguard(?:\.exe)?['"]?\s+(?:uninstall|init|reset)\b`)
+// Review findings (HIGH): "allow" was missing, so code provguard cannot
+// read could grant itself a blocked call (provguard allow <token>); and a
+// glob hid the names from the pattern, because only a shell command's
+// arguments are glob-matched, not text inside code.
+var protectedText = regexp.MustCompile(`(?i)` + strings.Join([]string{
+	`disableAllHooks`,
+	`allowManagedHooksOnly`,
+	`\.claude[\\/]+settings(?:\.local)?\.json`,
+	`\.claude[\\/]+set[a-z0-9._]*[*?\[]`, // a glob that can expand to a settings file
+	`\.provguard\b`,
+	`\.pro[a-z0-9]*[*?\[]`, // a glob that can expand to .provguard
+	`provguard(?:\.exe)?['"]?\s+(?:uninstall|init|reset|allow)\b`,
+}, "|"))
 
-// maxScript caps how much of a script file is scanned.
-const maxScript = 1 << 20
+// Script scanning limits. Review finding (HIGH): one 1 MiB read of the
+// start of the file meant that padding a script with filler hid the
+// reference, so the whole file is streamed in overlapping windows, up to a
+// budget shared by every file one hook process looks at.
+const (
+	scriptWindow  = 1 << 20
+	scriptOverlap = 256
+	scriptBudget  = 64 << 20
+)
 
 // Shell-level writes to settings files cannot be compared like Write/Edit
 // (the content is often unknown), so any shell write to them is denied.
@@ -411,6 +447,10 @@ func checkShell(an *shell.Analysis, raw, home, cwd string) Verdict {
 	if v := checkSelfCommands(an); v.Deny {
 		return v
 	}
+	// deepLeft budgets the OS lookups for arguments whose name gives no
+	// hint, so a renamed junction is still caught in a command of ordinary
+	// length without making a 200-argument one slow.
+	deepLeft := maxDeepArgs
 	for _, c := range an.Cmds {
 		if listOnly[c.Name] {
 			continue // listing names (ls ~/.provguard/sessions) reveals no contents
@@ -418,7 +458,11 @@ func checkShell(an *shell.Analysis, raw, home, cwd string) Verdict {
 		for _, a := range c.Args[min(1, len(c.Args)):] {
 			// Paths hide inside option values: curl -F f=@path, --data=@path, a,b
 			for _, part := range strings.FieldsFunc(a, func(r rune) bool { return r == '=' || r == '@' || r == ',' }) {
-				if secretPath(part, home, cwd) {
+				deep := deepLeft > 0 && looksLikePath(part)
+				if deep {
+					deepLeft--
+				}
+				if secretPath(part, home, cwd, deep) {
 					return deny("self_protect_secret", "blocked a command that uses provguard's key or session files ("+a+")")
 				}
 			}
@@ -441,10 +485,11 @@ func checkShell(an *shell.Analysis, raw, home, cwd string) Verdict {
 	}
 	// Script files run by the command (python x.py, bash x.sh, make, npm run):
 	// review finding — Write a script, then run it, bypassed every check.
+	budget := int64(scriptBudget) // per command, so a long-lived process keeps scanning
 	for _, c := range an.Cmds {
 		for _, f := range shell.ScriptFiles(c) {
 			for _, form := range pathForms(f, cwd, cds) {
-				if b := readCapped(canonical(form, cwd)); b != "" && protectedText.MatchString(b) {
+				if refersToProtected(canonical(form, cwd), &budget) {
 					return deny("self_protect_script", "blocked running "+f+", which refers to hook settings or provguard files")
 				}
 			}
@@ -481,13 +526,36 @@ func checkSelfCommands(an *shell.Analysis) Verdict {
 		switch c.Name {
 		case "cp", "copy", "copy-item", "install", "mv", "move", "move-item", "rsync", "robocopy", "xcopy", "ln", "mklink", "cat", "dd", "tar", "zip", "7z":
 			for _, a := range c.Args[1:] {
-				if n := norm(a); strings.Contains(n, ".provguard/bin") {
-					return deny("self_protect_install", "blocked copying provguard's protected binary ("+a+")")
+				if copiesBinary(a) {
+					return deny("self_protect_install", "blocked copying provguard's binary ("+a+")")
 				}
+			}
+		// Looking the binary up is the first half of "cp $(which provguard)
+		// /tmp/pg": the shell parser turns the substitution into "$(...)",
+		// so the path itself never reaches the check above.
+		case "which", "where", "whereis", "type", "command", "get-command", "gcm":
+			if containsArg(c.Args, "provguard") {
+				return deny("self_protect_install", "blocked looking up the path of provguard's binary")
 			}
 		}
 	}
 	return Verdict{}
+}
+
+// binaryName matches the name provguard's binary has on disk, in any folder.
+var binaryName = regexp.MustCompile(`(?:^|[/\\])provguard(?:\.exe)?$`)
+
+// copiesBinary reports whether an argument names provguard's binary. Review
+// finding (HIGH): only copies out of ~/.provguard/bin were blocked, so the
+// one `go install` put in ~/go/bin could be copied to another name and run
+// as `pg allow <token>`.
+func copiesBinary(a string) bool {
+	n := norm(strings.Trim(a, `'"`))
+	if strings.Contains(n, ".provguard/bin") || binaryName.MatchString(n) {
+		return true
+	}
+	// "cp $(which provguard) /tmp/pg": the path is computed at run time.
+	return strings.Contains(n, "provguard") && strings.ContainsAny(n, "$`")
 }
 
 func containsArg(args []string, sub string) bool {
@@ -499,13 +567,36 @@ func containsArg(args []string, sub string) bool {
 	return false
 }
 
-func readCapped(p string) string {
+// refersToProtected reports whether the file at p names a protected thing.
+// It reads the whole file in windows that overlap by scriptOverlap bytes, so
+// neither filler before the reference nor a window boundary through it hides
+// it. One Read can return less than a full window, so the windows are filled
+// with ReadFull.
+func refersToProtected(p string, budget *int64) bool {
 	f, err := os.Open(p)
 	if err != nil {
-		return ""
+		return false
 	}
 	defer f.Close()
-	buf := make([]byte, maxScript)
-	n, _ := f.Read(buf)
-	return string(buf[:n])
+	if fi, err := f.Stat(); err != nil || fi.IsDir() {
+		return false
+	}
+	buf := make([]byte, scriptOverlap+scriptWindow)
+	keep := 0
+	for *budget > 0 {
+		n, err := io.ReadFull(f, buf[keep:])
+		if n > 0 {
+			*budget -= int64(n)
+			end := keep + n
+			if protectedText.Match(buf[:end]) {
+				return true
+			}
+			keep = min(scriptOverlap, end)
+			copy(buf, buf[end-keep:end])
+		}
+		if err != nil { // EOF, a short last window, or a read error
+			return false
+		}
+	}
+	return false
 }

@@ -80,7 +80,7 @@ provguard starts in the **`audit` profile**: it logs what it *would* block and b
 
 4. **When you still want to send it.** A block is not the last word:
    - **Once:** the block message ends with a token. Run `provguard allow <token>` in your own terminal, then let the agent retry. That exact call, in that session, passes one time within 10 minutes. Agents cannot run `provguard allow`, and cannot compute a token for a call that was never blocked (it is an HMAC with your install key).
-   - **Always, for your own hosts:** add them to `allowed_hosts`. Data sent to those hosts (and their subdomains) does not count as leaving.
+   - **Always, for your own hosts:** add them to `allowed_hosts`. Data sent to those hosts (and their subdomains) does not count as leaving. This permits sending only; to trust what a host serves, use `trusted_content_hosts`.
    - **Decide each time:** `"block_mode": "ask"` turns the deny rules (1 and 2) into Claude Code's approval prompt in `balanced`. `strict` ignores it, and self-protection always denies.
 5. **Self-protection** (every profile): agents cannot change hook or command settings in any `.claude/settings*.json`, write to `~/.provguard/`, read its key or session files, or run `provguard init`, `uninstall`, `reset` or `allow`. Paths are checked as the OS resolves them, so junctions, symlinks and Windows path tricks do not get around it.
 
@@ -108,13 +108,13 @@ Status line: add this to `~/.claude/settings.json` yourself (provguard blocks ag
 
 ## Benchmark
 
-14 attack cases modeled on public incidents and on bypasses of provguard itself, and 31 normal coding tasks, replayed through the real hook:
+17 attack cases modeled on public incidents and on bypasses of provguard itself, and 31 normal coding tasks, replayed through the real hook:
 
 | Profile | Attacks blocked | Asks you | Missed | False positives in normal work |
 |---|---|---|---|---|
-| audit | 3 | 0 | 11 | 0 / 86 calls |
-| balanced | 10 | 4 | **0** | **0 / 86** |
-| strict | **14** | 0 | 0 | 0 / 86 (1 intended deny) |
+| audit | 4 | 0 | 13 | 0 / 86 calls |
+| balanced | 13 | 4 | **0** | **0 / 86** |
+| strict | **17** | 0 | 0 | 0 / 86 (1 intended deny) |
 
 ```bash
 provguard bench --check
@@ -154,7 +154,8 @@ Method, per-case results and caveats (the traces are author-written; real-agent 
   "profile": "audit",
   "trusted_repo_owners": ["your-github-user"],
   "trusted_mcp_servers": ["github"],
-  "allowed_hosts": ["docs.python.org", "api.mycorp.com"],
+  "allowed_hosts": ["api.mycorp.com"],
+  "trusted_content_hosts": ["docs.python.org"],
   "block_mode": "deny",
   "trust_sdk_mcp_servers": true,
   "self_protect": true,
@@ -162,7 +163,10 @@ Method, per-case results and caveats (the traces are author-written; real-agent 
 }
 ```
 
-`allowed_hosts` means two things: content fetched from these hosts is trusted, and data sent to them does not count as leaving. List only hosts you control or fully trust.
+The two host lists point in opposite directions, so keep them apart:
+
+- `allowed_hosts` — **sending**. Data sent to these hosts (and their subdomains) does not count as leaving. List hosts you control.
+- `trusted_content_hosts` — **receiving**. Content fetched from these hosts does not make the session untrusted. List hosts whose every page is written by people you trust. A host where anyone can publish (`github.com`, `raw.githubusercontent.com`, a paste site) does not qualify, and `provguard doctor` reports it.
 
 If `config.json` cannot be parsed, or `profile` is misspelled, provguard enforces `balanced` (not `audit`) until you fix it, and `provguard doctor` reports the problem.
 
@@ -179,7 +183,7 @@ Set `PROVGUARD_HOME` to use another folder.
 ## Safety rules for provguard itself
 
 - **It never says "allow".** It only denies or asks, so your normal permission prompts stay.
-- **It fails open in `audit` and `balanced`** (an error never breaks your work) and **closed in `strict`**.
+- **It fails open in `audit`, and mostly in `balanced`** (an error never breaks your work), and **closed in `strict`**. The one exception: in `balanced`, a check that crashes on a 🔴 session (untrusted content and secrets both seen) denies the call, because that is the case the lethal-trifecta rule exists for. A hook that times out blocks only in `strict`; `provguard doctor` says so.
 - **No raw secrets on disk.** Inputs are redacted, tool outputs are stored as size and SHA-256 only, and secrets as HMAC fingerprints.
 
 ## Limitations

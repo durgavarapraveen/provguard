@@ -32,9 +32,17 @@ type Config struct {
 	// provides (mcp_server.source == "sdk"). Default true.
 	TrustSDKMCPServers *bool `json:"trust_sdk_mcp_servers,omitempty"`
 
-	// AllowedHosts: fetched content from these hosts is trusted, and data
-	// sent to them does not count as egress.
+	// AllowedHosts: data sent to these hosts does not count as egress.
+	// Review finding (MED): this used to mean trust in both directions, so
+	// listing a host to allow uploads to it also made everything fetched
+	// from it trusted. Content trust is now its own list.
 	AllowedHosts []string `json:"allowed_hosts,omitempty"`
+
+	// TrustedContentHosts: content fetched from these hosts does not taint
+	// the session. Hosts that carry anyone's writing (github.com,
+	// gist.github.com, raw.githubusercontent.com, pastebin) do not belong
+	// here; provguard doctor reports them.
+	TrustedContentHosts []string `json:"trusted_content_hosts,omitempty"`
 
 	// BlockMode is "deny" (default) or "ask". In the balanced profile, "ask"
 	// turns policy denies (secret in call, lethal trifecta) into Claude Code's
@@ -92,11 +100,21 @@ func (c Config) ProfileKnown() bool {
 // than silently doing nothing.
 func FailSafe() Config { return Config{Profile: Balanced} }
 
-// HostAllowed reports whether host is in AllowedHosts or a subdomain of one.
-func (c Config) HostAllowed(host string) bool {
+// HostAllowed reports whether host is an allowed egress destination: in
+// AllowedHosts, or a subdomain of one.
+func (c Config) HostAllowed(host string) bool { return hostIn(host, c.AllowedHosts) }
+
+// ContentTrusted reports whether content fetched from host is trusted:
+// host is in TrustedContentHosts, or a subdomain of one.
+func (c Config) ContentTrusted(host string) bool { return hostIn(host, c.TrustedContentHosts) }
+
+func hostIn(host string, list []string) bool {
 	h := strings.ToLower(strings.TrimSuffix(host, "."))
-	for _, a := range c.AllowedHosts {
-		a = strings.ToLower(a)
+	for _, a := range list {
+		a = strings.ToLower(strings.TrimSuffix(strings.TrimSpace(a), "."))
+		if a == "" {
+			continue
+		}
 		if h == a || strings.HasSuffix(h, "."+a) {
 			return true
 		}

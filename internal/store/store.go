@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"time"
 )
 
@@ -23,6 +24,9 @@ const (
 
 	lockWait  = 3 * time.Second
 	lockStale = 10 * time.Second
+	// abandoned is when a lock or temp file is certainly leftover: far past
+	// lockStale, so GC never deletes one a live hook is holding.
+	abandoned = time.Hour
 )
 
 // Source records why a session got a label.
@@ -263,10 +267,29 @@ func GC(home string) int {
 	n := 0
 	for _, e := range entries {
 		fi, err := e.Info()
-		if err != nil || time.Since(fi.ModTime()) < MaxAge {
+		if err != nil {
 			continue
 		}
-		if os.Remove(filepath.Join(dir(home), e.Name())) == nil {
+		age := time.Since(fi.ModTime())
+		name := e.Name()
+		switch {
+		case strings.HasSuffix(name, ".json"):
+			if age < MaxAge {
+				continue
+			}
+		case strings.HasSuffix(name, ".lock"), strings.HasSuffix(name, ".tmp"),
+			strings.Contains(name, ".lock.stale-"):
+			// Review finding (LOW): every stale entry was removed by age,
+			// lock files included, so a session untouched for MaxAge whose
+			// hook was holding the lock lost it mid-update. A lock is only
+			// leftover once it is far past the age at which lock() breaks it.
+			if age < abandoned {
+				continue
+			}
+		default:
+			continue // not ours: leave it alone
+		}
+		if os.Remove(filepath.Join(dir(home), name)) == nil && strings.HasSuffix(name, ".json") {
 			n++
 		}
 	}

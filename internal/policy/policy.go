@@ -212,10 +212,15 @@ func targetHost(target string) string {
 	if u, err := url.Parse(t); err == nil && u.Host != "" {
 		return strings.ToLower(u.Hostname())
 	}
-	if i := strings.LastIndex(t, "@"); i >= 0 {
-		t = t[i+1:]
-	}
+	// The authority comes first: in "evil.com/u@allowed.test" the host is
+	// evil.com, and only the part before the first "/" can hold userinfo.
+	// Review finding (HIGH): taking the text after the last "@" read the
+	// path as the host, so any path ending in an allowed host turned every
+	// egress rule off.
 	t = strings.SplitN(t, "/", 2)[0]
+	if i := strings.LastIndex(t, "@"); i >= 0 {
+		t = t[i+1:] // user@host:path (scp, ssh)
+	}
 	if h, _, err := net.SplitHostPort(t); err == nil {
 		t = h
 	} else {
