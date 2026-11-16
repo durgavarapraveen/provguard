@@ -26,9 +26,20 @@ import (
 // they never block the agent. A non-PreToolUse event whose labels changed
 // prints a one-time notice for the user (Claude Code's "systemMessage").
 func handle(e event.Event, stdout io.Writer, rec *audit.Record) {
+	var newTitle string
 	defer func() {
-		if rec.Notice != "" && e.Kind != event.PreTool {
-			b, _ := json.Marshal(map[string]string{"systemMessage": rec.Notice})
+		if e.Kind == event.PreTool {
+			return // PreToolUse prints only decisions (respond)
+		}
+		out := map[string]any{}
+		if rec.Notice != "" {
+			out["systemMessage"] = rec.Notice
+		}
+		if newTitle != "" {
+			out["hookSpecificOutput"] = map[string]any{"hookEventName": e.RawEvent, "sessionTitle": newTitle}
+		}
+		if len(out) > 0 {
+			b, _ := json.Marshal(out)
 			stdout.Write(b)
 		}
 	}()
@@ -41,6 +52,15 @@ func handle(e event.Event, stdout io.Writer, rec *audit.Record) {
 	if err != nil {
 		rec.Error = err.Error() + " (using the balanced profile until it is fixed)"
 		cfg = config.FailSafe()
+	}
+	// SessionStart and UserPromptSubmit may retitle the session: put the trust
+	// icon in front, so untrusted sessions stand out in the session list.
+	if (e.Kind == event.SessionBeg || e.Kind == event.UserPrompt) && cfg.TitleIconOn() {
+		defer func() {
+			if s, err := store.Get(home, e.SessionID); err == nil {
+				newTitle = titleWithIcon(e.Title, s.Tainted, s.Sensitive)
+			}
+		}()
 	}
 
 	switch e.Kind {
@@ -180,6 +200,39 @@ func gitOutgoingDiff(cwd string) func() string {
 		out, _ := run("-n", "20")
 		return out
 	}
+}
+
+var titleIcons = []string{"🔴 ", "🟡 ", "🟠 ", "🟢 "}
+
+// titleWithIcon returns the title with the icon for the session's state in
+// front, or "" when no change is needed. A session without a title is left
+// alone, so the app still names it from the first prompt.
+func titleWithIcon(current string, tainted, sensitive bool) string {
+	if strings.TrimSpace(current) == "" {
+		return ""
+	}
+	base := current
+	for again := true; again; {
+		again = false
+		for _, ic := range titleIcons {
+			if strings.HasPrefix(base, ic) {
+				base, again = strings.TrimPrefix(base, ic), true
+			}
+		}
+	}
+	want := base
+	switch {
+	case tainted && sensitive:
+		want = "🔴 " + base
+	case tainted:
+		want = "🟡 " + base
+	case sensitive:
+		want = "🟠 " + base
+	}
+	if want == current {
+		return ""
+	}
+	return want
 }
 
 // transitionNotice describes a session that just became untrusted or

@@ -26,6 +26,7 @@ type Event struct {
 	Transcript string
 	Source     string          // SessionStart source, if any
 	Prompt     string          // UserPromptSubmit prompt, if any
+	Title      string          // current session title (SessionStart, UserPromptSubmit)
 	AgentID    string          // subagent id; subagents share the parent's SessionID
 	AgentType  string          // subagent type
 	MCPServer  string          // MCP server name for MCP tools
