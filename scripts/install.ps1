@@ -3,7 +3,8 @@
 #   irm https://raw.githubusercontent.com/durgavarapraveen/provguard/main/scripts/install.ps1 | iex
 #
 # It downloads the release binary for this machine, checks it against the
-# release's SHA256SUMS, and starts the guided setup (provguard init), which
+# release's SHA256SUMS (this catches a broken download, not a compromised
+# release), and starts the guided setup (provguard init), which
 # copies the binary to ~\.provguard\bin and adds the Claude Code hooks.
 #
 # Environment:
@@ -11,7 +12,11 @@
 #   PROVGUARD_DIST      install from this local folder instead of GitHub
 #   PROVGUARD_NO_INIT   set to 1 to download and check only
 
+# Everything runs inside a script block, so `irm | iex` leaves the user's
+# session as it was: no changed $ErrorActionPreference, no new functions.
+& {
 $ErrorActionPreference = 'Stop'
+$ProgressPreference = 'SilentlyContinue' # the PS 5.1 progress bar slows downloads a lot
 $repo = 'durgavarapraveen/provguard'
 
 # throw, not exit: under `irm | iex`, exit would close the user's window.
@@ -36,7 +41,7 @@ try {
         Copy-Item (Join-Path $env:PROVGUARD_DIST 'SHA256SUMS') $tmp
         Copy-Item (Join-Path $env:PROVGUARD_DIST "provguard_${version}_windows_$arch.exe") $tmp
     } else {
-        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+        [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
         if (-not $version) {
             $version = (Invoke-RestMethod "https://api.github.com/repos/$repo/releases/latest").tag_name -replace '^v', ''
             if (-not $version) { Fail 'could not find the latest release' }
@@ -72,4 +77,5 @@ try {
     Write-Host 'Then open a new terminal.'
 } finally {
     Remove-Item -Recurse -Force $tmp -ErrorAction SilentlyContinue
+}
 }

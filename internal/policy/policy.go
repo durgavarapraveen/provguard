@@ -182,7 +182,10 @@ func evaluate(in Input) Result {
 	}
 	var destroy []shell.Sink
 	for _, d := range filter(in.Sinks, shell.Destroy) {
-		if (s.Tainted || riskyDestroy(d, in.Cwd)) && !tempOnly(d, in.Text) {
+		// The temp-folder exemption holds only in a clean session. Review
+		// finding: a link inside %TEMP% can point anywhere, and untrusted
+		// content can make the agent create one first.
+		if s.Tainted || riskyDestroy(d, in.Cwd) && !tempOnly(d, in.Text) {
 			destroy = append(destroy, d)
 		}
 	}
@@ -201,8 +204,7 @@ func externalEgress(in Input) []shell.Sink {
 			continue // following links: only rule 1 applies
 		case s.Detail == "git_push" && in.RemoteTrusted != nil && in.RemoteTrusted(gitRemote(s.Target)):
 			continue // pushing to your own repository
-		case strings.HasPrefix(s.Target, shell.GHRepoPrefix) && in.GHRepoTrusted != nil &&
-			in.GHRepoTrusted(strings.TrimPrefix(s.Target, shell.GHRepoPrefix)):
+		case strings.HasPrefix(s.Target, shell.GHRepoPrefix) && ghAllTrusted(in, strings.TrimPrefix(s.Target, shell.GHRepoPrefix)):
 			continue // a pull request, issue or release in your own repository
 		case isLocal(s.Target) && !in.Config.LocalhostIsExternal:
 			continue // localhost: dev servers, local APIs
@@ -264,9 +266,32 @@ func targetHost(target string) string {
 	return strings.ToLower(t)
 }
 
+// ghEnvRe: gh reads GH_REPO, GH_HOST and other GH_* settings from the
+// environment, and PATH decides which gh runs. Any GH_ text, however it is
+// assembled, or setting an environment variable from PowerShell code, means
+// the call may write elsewhere. (In sh, a quoted or built name is a separate
+// command or an assignment, which shell.scopeGHTargets already refuses.)
+var ghEnvRe = regexp.MustCompile(`(?i)gh_|setenvironmentvariable|env:\s*[a-z_]*\s*=|\$\{env:`)
+
+// ghAllTrusted: every repository a gh call may write to is the user's.
+func ghAllTrusted(in Input, list string) bool {
+	repos := strings.Fields(list)
+	if in.GHRepoTrusted == nil || len(repos) == 0 || ghEnvRe.MatchString(in.Text) {
+		return false
+	}
+	for _, r := range repos {
+		if !in.GHRepoTrusted(r) {
+			return false
+		}
+	}
+	return true
+}
+
+// hasGitPush: the call pushes commits. gh pr create pushes the branch
+// first when it is not on the remote yet.
 func hasGitPush(sinks []shell.Sink) bool {
 	for _, s := range sinks {
-		if strings.HasPrefix(s.Detail, "git_push") {
+		if strings.HasPrefix(s.Detail, "git_push") || s.Detail == "gh_pr_create" {
 			return true
 		}
 	}
@@ -397,7 +422,9 @@ func tempOnly(d shell.Sink, text string) bool {
 var tempVars = []string{"$env:temp/", "$env:tmp/"}
 
 // tempRedefined finds a command that sets the temp variable itself.
-var tempRedefined = regexp.MustCompile(`(?i)\$env:te?mp\s*=|env:\\?te?mp\b.*-value|setenvironmentvariable\(\s*['"]te?mp`)
+// Review finding: ${env:TEMP} = … and Set-Item Env:TEMP … were missed, so
+// any mention of env:TEMP other than "$env:TEMP" read as a value counts.
+var tempRedefined = regexp.MustCompile(`(?i)\$env:te?mp\s*=|[^$]env:\\?te?mp\b|\$\{env:te?mp\}|setenvironmentvariable`)
 
 // inTemp: p is strictly inside tempDir, written as a literal path (also the
 // Git Bash form /c/...) or as a temp variable followed by a plain name. No
