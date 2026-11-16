@@ -160,6 +160,9 @@ func handle(e event.Event, stdout io.Writer, rec *audit.Record) {
 		if err := untrustedRepoAtStart(home, cfg, e, rec); err != nil {
 			rec.Error = err.Error()
 		}
+		if rec.Notice == "" {
+			rec.Notice = auditNudge(home, cfg, time.Now())
+		}
 	default:
 		if e.RawEvent == "ConfigChange" {
 			if err := configChanged(home, e, rec); err != nil {

@@ -19,22 +19,32 @@ var version = "dev"
 // maxPayload caps stdin. Larger tool responses are cut; the hook still logs.
 const maxPayload = 64 << 20
 
-const usage = `provguard - runtime firewall for AI coding agents (log-only)
+const usage = `provguard - a runtime firewall for AI coding agents
 
-Usage:
-  provguard hook <EventName>                 run as a Claude Code hook (reads JSON on stdin)
-  provguard init [--yes] [--settings P]      guided setup; --yes installs without questions
-  provguard uninstall [--settings P] [--yes] remove hooks from Claude Code settings
-  provguard explain [session|latest] [--all]  show labels and policy hits of a session
-  provguard doctor [dir] [--json]            check hooks and scan a repo before you open it
-  provguard demo                             show one normal task and two attacks (safe, temp folder)
-  provguard status [--session ID] [--json]   a session's trust state; use as a Claude Code status line
-  provguard reset [session|latest] [--yes]    clear a session's untrusted label (user only)
-  provguard config [setting value]           show or change settings (user only)
-  provguard allow <token>                   approve one blocked call once (user only)
-  provguard bench [--profiles P] [--cases IDs] [--check] [--out F] [--live --runs N --model M]
-                                             run the attack benchmark
+Start here:
+  provguard init                    guided setup (--yes: no questions)
+  provguard demo                    see it stop two attacks, in a temp folder
+  provguard status                  this session's trust state (also a status line)
+  provguard review [--days N]       what it stopped, and what to do next
+  provguard config [setting value]  show or change settings
+
+When something was blocked:
+  provguard allow <token>           let one blocked call through once
+  provguard explain [session|latest] [--all]
+                                    why a session is untrusted, and every hit
+  provguard reset [session|latest] [--yes]
+                                    clear a session's untrusted label
+
+More:
+  provguard doctor [dir] [--json]   check the hooks; scan a repo before you open it
+  provguard uninstall [--yes]       remove the hooks (settings and logs are kept)
+  provguard bench [--check] [--profiles P] [--cases IDs] [--out F] [--live --runs N --model M]
+                                    the attack and false-positive benchmark
+  provguard hook <EventName>        run as a Claude Code hook (JSON on stdin)
   provguard version
+
+Commands that change provguard (init, uninstall, config, allow, reset)
+are for you, not your agent: provguard blocks agents from running them.
 `
 
 func main() {
@@ -57,6 +67,8 @@ func main() {
 		os.Exit(runExplain(os.Args[2:], os.Stdout))
 	case "reset":
 		os.Exit(runReset(os.Args[2:], os.Stdout))
+	case "review":
+		os.Exit(runReview(os.Args[2:], os.Stdout))
 	case "allow":
 		os.Exit(runAllow(os.Args[2:], os.Stdout))
 	case "config":
