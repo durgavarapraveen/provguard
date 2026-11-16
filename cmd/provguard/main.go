@@ -2,17 +2,14 @@
 package main
 
 import (
-	"flag"
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"time"
 
 	"github.com/durgavarapraveen/provguard/internal/adapter/claudecode"
 	"github.com/durgavarapraveen/provguard/internal/audit"
 	"github.com/durgavarapraveen/provguard/internal/config"
-	"github.com/durgavarapraveen/provguard/internal/install"
 	"github.com/durgavarapraveen/provguard/internal/store"
 )
 
@@ -26,7 +23,7 @@ const usage = `provguard - runtime firewall for AI coding agents (log-only)
 
 Usage:
   provguard hook <EventName>                 run as a Claude Code hook (reads JSON on stdin)
-  provguard init [--settings P] [--yes]      add hooks to Claude Code settings
+  provguard init [--yes] [--settings P]      guided setup; --yes installs without questions
   provguard uninstall [--settings P] [--yes] remove hooks from Claude Code settings
   provguard explain [session|latest] [--all]  show labels and policy hits of a session
   provguard doctor [dir] [--json]            check hooks and scan a repo before you open it
@@ -149,91 +146,5 @@ func runHook(stdin io.Reader, stdout io.Writer, eventArg string) (code int) {
 	rec = audit.FromEvent(e)
 	rec.Decision = "none"
 	handle(e, stdout, &rec)
-	return 0
-}
-
-func runInstall(args []string, add bool) int {
-	name := "uninstall"
-	if add {
-		name = "init"
-	}
-	fs := flag.NewFlagSet(name, flag.ContinueOnError)
-	settings := fs.String("settings", "", "settings file (default ~/.claude/settings.json)")
-	yes := fs.Bool("yes", false, "write the change (without it, only show the change)")
-	noCopy := fs.Bool("no-copy", false, "init: run hooks from this binary's location instead of the protected ~/.provguard/bin copy")
-	if err := fs.Parse(args); err != nil {
-		return 2
-	}
-	path := *settings
-	if path == "" {
-		p, err := install.DefaultSettingsPath()
-		if err != nil {
-			fmt.Fprintln(os.Stderr, "error:", err)
-			return 1
-		}
-		path = p
-	}
-	s, err := install.Load(path)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "error:", err)
-		return 1
-	}
-	before := install.HooksJSON(s)
-
-	if add {
-		exe, err := os.Executable()
-		if err == nil {
-			exe, err = filepath.EvalSymlinks(exe)
-		}
-		if err != nil {
-			fmt.Fprintln(os.Stderr, "error: find provguard binary:", err)
-			return 1
-		}
-		home, err := audit.Home()
-		if err != nil {
-			fmt.Fprintln(os.Stderr, "error:", err)
-			return 1
-		}
-		cfg, _ := config.Load(home)
-		target := exe
-		if !*noCopy {
-			// Hooks run the copy in ~/.provguard/bin, which agents cannot write.
-			target = filepath.Join(home, "bin", "provguard"+filepath.Ext(exe))
-			if *yes {
-				if target, err = install.CopyBinary(exe, home); err != nil {
-					fmt.Fprintln(os.Stderr, "error: copy binary:", err)
-					return 1
-				}
-				fmt.Println("Installed binary:", target)
-			}
-		}
-		opts := install.Options{FailClosed: cfg.ProfileName() == config.Strict}
-		if err := install.AddWith(s, target, claudecode.Events, opts); err != nil {
-			fmt.Fprintln(os.Stderr, "error:", err)
-			return 1
-		}
-		if opts.FailClosed {
-			fmt.Println("Profile is strict: PreToolUse hook fails closed (onFailure: block).")
-		}
-	} else if install.Remove(s) == 0 {
-		fmt.Println("No provguard hooks found in", path)
-		return 0
-	}
-
-	after := install.HooksJSON(s)
-	fmt.Printf("Settings file: %s\n\n--- hooks before ---\n%s\n\n--- hooks after ---\n%s\n\n", path, before, after)
-	if !*yes {
-		fmt.Println("No change written. Run again with --yes to apply.")
-		return 0
-	}
-	backup, err := install.Save(path, s)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "error:", err)
-		return 1
-	}
-	if backup != "" {
-		fmt.Println("Backup:", backup)
-	}
-	fmt.Println("Written. Claude Code reloads hook settings without a restart.")
 	return 0
 }
