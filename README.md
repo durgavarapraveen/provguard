@@ -25,6 +25,14 @@ Profiles, set with `"profile"` in `config.json`:
 - `balanced`: the table above.
 - `strict`: every "ask" becomes "deny".
 
+## Benchmark
+
+12 attack cases modeled on public incidents. In replay mode, `balanced` blocks 8 and asks on 3; one case (instructions in an auto-loaded `CLAUDE.md`) is a known gap. Details and method: [docs/BENCHMARK.md](docs/BENCHMARK.md).
+
+```bash
+provguard bench
+```
+
 ## Commands for you
 
 ```bash
@@ -40,6 +48,18 @@ provguard reset latest --yes
 Clears a session's untrusted label after you have checked it. Secret fingerprints stay. Agents cannot run `reset`, `init` or `uninstall`; self-protection blocks them.
 
 See [DESIGN.md](DESIGN.md) for the threat model, design and MVP plan.
+
+## Where it works
+
+| Where you use Claude | Protected by provguard? |
+|---|---|
+| Claude Code CLI | Yes |
+| Claude desktop app, Code tab | Yes (verified live) |
+| VS Code / JetBrains with Claude Code | Likely, because they use the same `~/.claude/settings.json`. Not tested yet. |
+| Claude desktop app, Chat with MCP servers | No. Chat does not run Claude Code hooks. Needs the planned MCP proxy (v0.3). |
+| Cursor, Gemini CLI | Not yet. Adapters are planned for v0.2. |
+
+`provguard bench --live` starts the Claude Code CLI (`claude -p`), which has its own login, separate from the desktop app. Run `claude` and then `/login` in a terminal first.
 
 ## Build
 
