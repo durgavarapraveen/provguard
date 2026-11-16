@@ -221,7 +221,7 @@ func TestBashNoSinks(t *testing.T) {
 		{`grep -rn "eval(" src/`, nil},
 		{`echo hi > out.txt`, nil},
 		{`mkdir -p build && cd build`, nil},
-		{`git push --help`, []string{"EGRESS:git_push"}}, // conservative: still a push command
+		{`git push --help`, nil}, // git shows help for "<subcommand> --help" and runs nothing
 	})
 }
 

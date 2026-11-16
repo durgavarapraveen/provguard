@@ -147,7 +147,12 @@ func psStatement(a *Analysis, toks []psTok, depth int) string {
 	if psKeywords[strings.ToLower(first.s)] {
 		return "" // control flow; its blocks are separate statements
 	}
-	if first.dyn || callOp && strings.HasPrefix(first.s, "$") {
+	known := knownProgramPath(first.s)
+	if known {
+		// & "$env:USERPROFILE\tools\x.exe": the program is x.
+		first.dyn, words[0].dyn = false, false
+	}
+	if first.dyn || callOp && strings.HasPrefix(first.s, "$") && !known {
 		a.sink(Opaque, "dynamic_command", first.s)
 		a.Cmds = append(a.Cmds, Cmd{Name: first.s, Dynamic: true})
 		return ""

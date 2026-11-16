@@ -63,6 +63,9 @@ func command(a *Analysis, args []string, dyn []bool, depth int, d Dialect) {
 		return
 	}
 	name := baseName(args[0])
+	if dyn[0] && knownProgramPath(args[0]) {
+		dyn[0] = false // "$HOME/bin/tool": the program is tool
+	}
 	a.Cmds = append(a.Cmds, Cmd{Name: name, Args: args, Dynamic: dyn[0]})
 	if dyn[0] {
 		a.sink(Opaque, "dynamic_command", args[0])
@@ -500,6 +503,8 @@ func classify(a *Analysis, name string, args []string) {
 		if len(pos) > 0 {
 			a.sink(Egress, "dns:"+name, pos[0])
 		}
+	case (name == "git" || name == "gh") && helpOnly(args):
+		// `gh repo delete --help` prints help and runs nothing.
 	case name == "git":
 		gitCmd(a, args)
 	case name == "gh":
@@ -670,11 +675,7 @@ func classify(a *Analysis, name string, args []string) {
 		}
 	case name == "sed" || name == "perl":
 		if hasFlag(args, 'i', "--in-place") || hasPrefixArg(args, "--in-place") {
-			files := pos
-			if !hasFlag(args, 'e', "--expression") && !hasFlag(args, 'f', "--file") && len(files) > 0 {
-				files = files[1:] // first positional is the script
-			}
-			for _, p := range files {
+			for _, p := range sedFiles(args) {
 				a.write(p, "write", false)
 			}
 		}
@@ -1026,6 +1027,73 @@ var ghPersist = map[string]map[string]bool{
 	"gpg-key":    set("add"),
 	"auth":       set("refresh", "login"),
 	"deploy-key": set("add"),
+}
+
+// sedFiles returns the files `sed -i` / `perl -i` edits. The script is the
+// value of -e/-f (or --expression/--file), or else the first positional.
+// Found live: with -e, the script itself ('/^\t"flag"$/d') was read as a
+// file name, and its "$" made it a write to an unknown path.
+func sedFiles(args []string) []string {
+	var files []string
+	script := false // a script came from -e/-f
+	for i := 0; i < len(args); i++ {
+		x := args[i]
+		switch {
+		case x == "--":
+			files = append(files, args[i+1:]...)
+			i = len(args)
+		case x == "-e" || x == "--expression" || x == "-f" || x == "--file":
+			script = true
+			i++ // skip the value
+		case strings.HasPrefix(x, "--expression=") || strings.HasPrefix(x, "--file="):
+			script = true
+		case strings.HasPrefix(x, "-") && len(x) > 1:
+			// A cluster of short options (-ne, -i.bak, -pe): i ends it with
+			// an attached backup suffix; e or f ends it with the script,
+			// attached (-es/x/y/) or in the next argument (-ne 's/x/y/').
+		cluster:
+			for j := 1; j < len(x); j++ {
+				switch x[j] {
+				case 'i':
+					break cluster
+				case 'e', 'f':
+					script = true
+					if j == len(x)-1 {
+						i++
+					}
+					break cluster
+				}
+			}
+		default:
+			files = append(files, x)
+		}
+	}
+	if !script && len(files) > 0 {
+		files = files[1:] // the first positional is the script
+	}
+	var out []string
+	for _, f := range files {
+		if f != "" {
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
+// helpOnly reports whether a git or gh call only prints help: --help or -h
+// right after a subcommand word. After an option it may be that option's
+// value (`gh pr create --body --help` creates a pull request), so it does
+// not count there, nor after "--".
+func helpOnly(args []string) bool {
+	for i, x := range args {
+		if x == "--" {
+			return false
+		}
+		if (x == "--help" || x == "-h") && i > 0 && !strings.HasPrefix(args[i-1], "-") {
+			return true
+		}
+	}
+	return false
 }
 
 func ghCmd(a *Analysis, args []string) {

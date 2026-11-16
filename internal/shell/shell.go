@@ -188,6 +188,20 @@ func unknownTarget(p string) bool {
 	return false
 }
 
+// knownProgramPath reports whether a program path is computed only from
+// folder variables ($HOME, $env:USERPROFILE, $env:TEMP, …) and ends in a
+// literal file name, so the program is known before it runs. Every check
+// that goes by program name (self-protection, sinks) then applies to it.
+// Found live: & "$env:USERPROFILE\.provguard\bin\provguard.exe" version was
+// read as an unknown command.
+func knownProgramPath(p string) bool {
+	if !strings.Contains(p, "$") || unknownTarget(p) {
+		return false
+	}
+	base := p[strings.LastIndexAny(p, `/\`)+1:]
+	return base != "" && !strings.ContainsAny(base, "$")
+}
+
 func isNullDevice(p string) bool {
 	switch strings.ToLower(p) {
 	case "/dev/null", "/dev/stdout", "/dev/stderr", "/dev/tty", "nul", "$null", "nul:":
