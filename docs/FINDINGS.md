@@ -79,6 +79,24 @@ The agent sees the reason and is told to ask the user to do it in a terminal.
 - **PowerShell gaps found by tests and fixed:** grouping parentheses (`(iwr URL).Content`) were not analyzed. Commands inside `{ }` blocks (`if (…) { … }`, `ForEach-Object { … }`) were not analyzed. `$x` alone was wrongly treated as a command; PowerShell runs a variable only with `&` or `.`.
 - Analysis cost: about 15 µs (Bash) and 20 µs (PowerShell) per command. That is negligible next to process start (M3).
 
+### F10. Week 4 policy — results and false positives seen live (audit mode)
+- 14 end-to-end scenarios pass (`cmd/provguard/scenario_test.go`): issue injection → `curl` exfil, `git remote add` / `git push` to an injected remote, `python -c` socket exfil, secret in URL, base64 secret in a DNS name, `curl | sh`, CI workflow edit, plus normal work sessions with no decision.
+- A test caught a real gap before release: a hex/base64 secret inside a larger token (`https://x.test/<hex>`, `<hex>.evil.test`) was not decoded. Each part of a token is now decoded, and DNS labels are split on dots.
+- **False positives seen live, kept for week 6 tuning:**
+  1. `gh pr create` / `gh pr view` on the user's *own* repo marked the session untrusted (rule `shell_fetch:github_cli`). `gh` reads of repos whose owner is in `trusted_repo_owners` should not taint.
+  2. The redactor's high-entropy rule redacted long Windows temp paths in the audit log (`C:[REDACTED:high_entropy]`). Path-like strings need an exception, but AWS secret keys contain `/`, so this needs care.
+  3. Expected in tests, not yet seen live: in a tainted session, `npm install` asks (rule 4). This may be too noisy for normal "read docs, then install" work.
+- Secret check cost: about 59 µs per call (benchmark).
+
+### F11. Audit-log review found 3 more issues — fixed
+Found by summarizing the live audit log (715 records, 7 sessions):
+1. **False negative:** another session ran a loop of `gh repo delete` on several repositories. It was classed EGRESS, so the `destroy` rule never saw the most destructive action of the day. `gh repo/release/issue/gist/secret/... delete` and `gh api -X DELETE` are now DESTROY (would ask). Verified live with `gh repo delete --help`.
+2. **False positive:** PowerShell expressions were read as unknown commands (OPAQUE): `@(...)`, then `"…"` strings and `([datetime]$x)`. Rule now: without `&` or `.`, PowerShell never runs a computed name, so any statement starting with an expression is not a command. Verified live.
+3. **Bug (code review):** `python - <<EOF` heredocs were parsed as bash. Interpreter heredocs now go to the inline-code checks (network → EGRESS, writes → OPAQUE).
+4. Smaller fix from the new tests: `gh api -X DELETE /path` reported `DELETE` as the target instead of the path.
+
+Lesson: the audit log is the best test input. Real sessions produced 4 bugs in 1 review that ~200 written cases missed.
+
 ## Measurements
 
 ### M1. Hook latency, log-only (Windows 11, go1.27.4, 2026-11-16)

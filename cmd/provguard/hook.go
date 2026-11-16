@@ -11,6 +11,7 @@ import (
 	"github.com/durgavarapraveen/provguard/internal/event"
 	"github.com/durgavarapraveen/provguard/internal/fingerprint"
 	"github.com/durgavarapraveen/provguard/internal/label"
+	"github.com/durgavarapraveen/provguard/internal/policy"
 	"github.com/durgavarapraveen/provguard/internal/protect"
 	"github.com/durgavarapraveen/provguard/internal/shell"
 	"github.com/durgavarapraveen/provguard/internal/store"
@@ -32,29 +33,52 @@ func handle(e event.Event, stdout io.Writer, rec *audit.Record) {
 	switch e.Kind {
 	case event.PreTool:
 		var an *shell.Analysis
+		var sinks []shell.Sink
+		var text string
 		if e.ToolName == "Bash" || e.ToolName == "PowerShell" {
 			d := shell.Bash
 			if e.ToolName == "PowerShell" {
 				d = shell.PowerShell
 			}
-			cmd, _ := e.ToolInput["command"].(string)
-			an = shell.Analyze(cmd, d)
-			rec.Sinks = an.SinkStrings()
+			text, _ = e.ToolInput["command"].(string)
+			an = shell.Analyze(text, d)
+			sinks = an.Sinks
+		} else {
+			sinks, text = policy.ToolSinks(e, cfg)
 		}
-		if !cfg.SelfProtectOn() {
+		for _, s := range sinks {
+			rec.Sinks = append(rec.Sinks, s.String())
+		}
+
+		// Self-protection runs in every profile, including audit.
+		if cfg.SelfProtectOn() {
+			if v := protect.Check(e, home, an); v.Deny {
+				respond(stdout, rec, claudecode.Deny, v.Rule, v.Reason)
+				return
+			}
+		}
+		if len(sinks) == 0 {
 			return
 		}
-		if v := protect.Check(e, home, an); v.Deny {
-			out, err := claudecode.PreToolResponse(claudecode.Deny, v.Reason)
-			if err != nil {
-				rec.Error = err.Error()
-				return
-			}
-			if _, err := stdout.Write(out); err != nil {
-				rec.Error = err.Error()
-				return
-			}
-			rec.Decision, rec.Rule = "deny", v.Rule
+		snap, err := store.Get(home, e.SessionID)
+		if err != nil {
+			rec.Error = err.Error()
+			return
+		}
+		var key fingerprint.Key
+		if len(snap.Fingerprints) > 0 {
+			key, _ = fingerprint.LoadOrCreate(home)
+		}
+		r := policy.Evaluate(policy.Input{Tool: e.ToolName, Sinks: sinks, Text: text, Session: snap, Key: key, Config: cfg})
+		rec.Profile, rec.Would = cfg.ProfileName(), r.Would
+		if r.Would != policy.None {
+			rec.Rule, rec.Reason = r.Rule, r.Reason
+		}
+		switch r.Decision {
+		case policy.Deny:
+			respond(stdout, rec, claudecode.Deny, r.Rule, r.Reason)
+		case policy.Ask:
+			respond(stdout, rec, claudecode.Ask, r.Rule, r.Reason)
 		}
 	case event.PostTool, event.UserPrompt:
 		if err := applyLabels(home, cfg, e, rec); err != nil {
@@ -63,6 +87,19 @@ func handle(e event.Event, stdout io.Writer, rec *audit.Record) {
 	case event.SessionBeg:
 		store.GC(home)
 	}
+}
+
+// respond prints a PreToolUse decision and records it.
+func respond(stdout io.Writer, rec *audit.Record, d claudecode.Decision, rule, reason string) {
+	out, err := claudecode.PreToolResponse(d, reason)
+	if err == nil {
+		_, err = stdout.Write(out)
+	}
+	if err != nil {
+		rec.Error = err.Error()
+		return
+	}
+	rec.Decision, rec.Rule, rec.Reason = string(d), rule, reason
 }
 
 // applyLabels labels the event. Fast path: most events change nothing, so it

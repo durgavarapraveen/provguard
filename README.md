@@ -2,7 +2,42 @@
 
 A runtime firewall for AI coding agents. It tracks where context comes from and blocks dangerous tool calls that untrusted content drives.
 
-> **Status: week 3.** provguard labels what each session reads (untrusted, sensitive), parses every Bash/PowerShell command into sink classes (EGRESS, PERSIST, DESTROY, EXEC_REMOTE, OPAQUE) and logs them, and blocks one thing: agent changes to hook settings or provguard's own files. The main policy (blocking exfiltration) comes in week 4.
+> **Status: week 4.** provguard labels what each session reads (untrusted, sensitive), parses every Bash/PowerShell command into sink classes, and applies a policy that can block exfiltration. The default profile is `audit`: it logs what it *would* block and blocks nothing except attempts to turn provguard off.
+
+## Policy
+
+Rules, first match wins:
+
+| # | Situation | Decision |
+|---|---|---|
+| 1 | The call contains a secret this session has seen (plain, base64, hex or URL-encoded) | deny |
+| 2 | EGRESS while the session has read both untrusted content and secrets (the "lethal trifecta") | deny |
+| 3 | EGRESS to a URL or host taken from untrusted content | ask |
+| 4 | PERSIST, EXEC_REMOTE or OPAQUE while the session is untrusted | ask |
+| 5 | DESTROY (`rm -rf`, `git push --force`, …) | ask |
+| 6 | Anything else | no decision (normal Claude Code permissions) |
+
+Besides Bash and PowerShell, the policy also covers WebFetch (EGRESS when the URL carries data), Write/Edit to persistence paths (CI, git hooks, shell startup files, agent config), and third-party MCP tools whose names suggest writing (`create_*`, `send_*`, `post_*`, …).
+
+Profiles, set with `"profile"` in `config.json`:
+
+- `audit` (default): never blocks; the audit log records `"would": "deny"` or `"ask"`.
+- `balanced`: the table above.
+- `strict`: every "ask" becomes "deny".
+
+## Commands for you
+
+```bash
+provguard explain latest
+```
+
+Shows why a session is untrusted or sensitive and every policy hit.
+
+```bash
+provguard reset latest --yes
+```
+
+Clears a session's untrusted label after you have checked it. Secret fingerprints stay. Agents cannot run `reset`, `init` or `uninstall`; self-protection blocks them.
 
 See [DESIGN.md](DESIGN.md) for the threat model, design and MVP plan.
 
@@ -58,6 +93,7 @@ Set `PROVGUARD_HOME` to change the location.
 
 ```json
 {
+  "profile": "audit",
   "self_protect": true,
   "trusted_repo_owners": ["your-github-user"],
   "trusted_mcp_servers": ["github"],

@@ -515,15 +515,34 @@ func anyPrefix(xs []string, p string) bool {
 	return false
 }
 
+// ghWrite: gh subcommands that send data to GitHub (EGRESS).
 var ghWrite = map[string]map[string]bool{
-	"issue":    set("create", "comment", "edit", "close", "reopen", "delete", "transfer"),
+	"issue":    set("create", "comment", "edit", "close", "reopen", "transfer"),
 	"pr":       set("create", "comment", "edit", "review", "merge", "close"),
 	"gist":     set("create", "edit"),
-	"release":  set("create", "upload", "edit", "delete"),
-	"repo":     set("create", "edit", "delete", "fork", "rename", "archive"),
-	"secret":   set("set", "delete"),
-	"variable": set("set", "delete"),
+	"release":  set("create", "upload", "edit"),
+	"repo":     set("create", "edit", "fork", "rename", "archive"),
+	"secret":   set("set"),
+	"variable": set("set"),
 	"workflow": set("run", "enable"),
+}
+
+// ghDestroy: gh subcommands that delete data on GitHub (DESTROY).
+// Found live: a loop of `gh repo delete` was classed as EGRESS, so the
+// destroy rule did not see it.
+var ghDestroy = map[string]map[string]bool{
+	"repo":     set("delete"),
+	"issue":    set("delete"),
+	"gist":     set("delete"),
+	"release":  set("delete", "delete-asset"),
+	"secret":   set("delete", "remove"),
+	"variable": set("delete"),
+	"run":      set("delete"),
+	"cache":    set("delete"),
+	"label":    set("delete"),
+	"ssh-key":  set("delete"),
+	"gpg-key":  set("delete"),
+	"project":  set("delete"),
 }
 
 func ghCmd(a *Analysis, args []string) {
@@ -532,24 +551,43 @@ func ghCmd(a *Analysis, args []string) {
 		return
 	}
 	if pos[0] == "api" {
-		if hasFlag(args, 'f', "--field", "--raw-field", "--input") || hasFlag(args, 'F') || hasMethod(args) {
-			a.sink(Egress, "gh_api_write", strings.Join(pos[1:min(2, len(pos))], ""))
+		target := ""
+		for _, p := range pos[1:] {
+			if strings.Contains(p, "/") || strings.Contains(p, "graphql") {
+				target = p // the endpoint, not the value of -X
+				break
+			}
+		}
+		switch m := apiMethod(args); {
+		case m == "DELETE":
+			a.sink(Destroy, "gh_api_delete", target)
+		case m != "GET" || hasFlag(args, 'f', "--field", "--raw-field", "--input") || hasFlag(args, 'F'):
+			a.sink(Egress, "gh_api_write", target)
 		}
 		return
 	}
-	if len(pos) > 1 && ghWrite[pos[0]][pos[1]] {
+	if len(pos) < 2 {
+		return
+	}
+	target := strings.Join(pos[2:], " ")
+	if ghDestroy[pos[0]][pos[1]] {
+		a.sink(Destroy, "gh_"+pos[0]+"_"+pos[1], target)
+		return
+	}
+	if ghWrite[pos[0]][pos[1]] {
 		a.sink(Egress, "gh_"+pos[0]+"_"+pos[1], "")
 	}
 }
 
-func hasMethod(args []string) bool {
+// apiMethod returns the upper-case HTTP method of a `gh api` call (default GET).
+func apiMethod(args []string) string {
 	for i, x := range args {
-		if (x == "-X" || x == "--method") && i+1 < len(args) && !strings.EqualFold(args[i+1], "GET") {
-			return true
+		if (x == "-X" || x == "--method") && i+1 < len(args) {
+			return strings.ToUpper(args[i+1])
 		}
-		if v, ok := strings.CutPrefix(x, "--method="); ok && !strings.EqualFold(v, "GET") {
-			return true
+		if v, ok := strings.CutPrefix(x, "--method="); ok {
+			return strings.ToUpper(v)
 		}
 	}
-	return false
+	return "GET"
 }
