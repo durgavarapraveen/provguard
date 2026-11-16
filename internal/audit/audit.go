@@ -43,6 +43,8 @@ type Record struct {
 	// Would is the policy decision under balanced/strict. In audit mode
 	// Decision stays "none" and Would shows what would have happened.
 	Would string `json:"would,omitempty"`
+	// Override is set when the user approved this call with provguard allow.
+	Override string `json:"override,omitempty"`
 	// Notice is the one-time message shown to the user when the session's
 	// labels changed (Claude Code systemMessage).
 	Notice string   `json:"notice,omitempty"`

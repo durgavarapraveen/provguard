@@ -471,7 +471,7 @@ func checkSelfCommands(an *shell.Analysis) Verdict {
 		if prog {
 			for _, a := range c.Args[1:] {
 				switch strings.ToLower(strings.Trim(a, `'",`)) {
-				case "init", "uninstall", "reset":
+				case "init", "uninstall", "reset", "allow":
 					return deny("self_protect_install", "blocked an agent from running provguard "+strings.ToLower(a))
 				}
 			}

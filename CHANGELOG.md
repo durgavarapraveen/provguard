@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+### Added
+- `provguard allow <token>`: the user lets one blocked call through once (same session, tool and text; 10 minutes). Tokens are HMACs with the install key; agents cannot run the command.
+- `allowed_hosts` now also exempts data sent to those hosts from the egress rules.
+- `"block_mode": "ask"` turns `balanced` denies into an approval prompt.
+- Session title icon and `provguard status` for the trust state; `provguard-badge` desktop mod (status entry and toasts).
+
 ## v0.1.0 — first public release
 
 ### Protection

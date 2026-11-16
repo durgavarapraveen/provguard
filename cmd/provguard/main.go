@@ -32,6 +32,7 @@ Usage:
   provguard demo                             show one normal task and two attacks (safe, temp folder)
   provguard status [--session ID] [--json]   a session's trust state; use as a Claude Code status line
   provguard reset [session|latest] [--yes]    clear a session's untrusted label (user only)
+  provguard allow <token>                     approve one blocked call once (user only)
   provguard bench [--profiles P] [--cases IDs] [--check] [--out F] [--live --runs N --model M]
                                              run the attack benchmark
   provguard version
@@ -57,6 +58,8 @@ func main() {
 		os.Exit(runExplain(os.Args[2:], os.Stdout))
 	case "reset":
 		os.Exit(runReset(os.Args[2:], os.Stdout))
+	case "allow":
+		os.Exit(runAllow(os.Args[2:], os.Stdout))
 	case "bench":
 		os.Exit(runBench(os.Args[2:], os.Stdout))
 	case "doctor":

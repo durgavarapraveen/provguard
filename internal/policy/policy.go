@@ -72,6 +72,10 @@ func Evaluate(in Input) Result {
 		r.Decision = r.Would
 	default:
 		r.Decision = r.Would
+		if r.Would == Deny && in.Config.BlockAsks() {
+			// block_mode "ask": the user decides in Claude Code's prompt.
+			r.Decision = Ask
+		}
 	}
 	return r
 }
@@ -86,7 +90,7 @@ func evaluate(in Input) Result {
 	}
 
 	// 1. Secret in the call. Only for sinks that can carry data somewhere.
-	if len(s.Fingerprints) > 0 && in.Key != nil && carriesData(in.Sinks) {
+	if len(s.Fingerprints) > 0 && in.Key != nil && carriesData(withoutAllowed(in)) {
 		if kind := SecretIn(in.Text, s.Fingerprints, in.Key); kind != "" {
 			return result(Deny, "secret_in_sink", fmt.Sprintf(
 				"this %s call contains a secret this session read earlier (%s; matched as %s)",
@@ -170,10 +174,57 @@ func externalEgress(in Input) []shell.Sink {
 			continue // pushing to your own repository
 		case isLocal(s.Target) && !in.Config.LocalhostIsExternal:
 			continue // localhost: dev servers, local APIs
+		case allowedTarget(in.Config, s.Target):
+			continue // a destination the user listed in allowed_hosts
 		}
 		out = append(out, s)
 	}
 	return out
+}
+
+// withoutAllowed drops EGRESS sinks whose destination the user allows, so a
+// secret sent to your own API (allowed_hosts) is not "a secret leaving".
+func withoutAllowed(in Input) []shell.Sink {
+	var out []shell.Sink
+	for _, s := range in.Sinks {
+		if s.Class == shell.Egress && allowedTarget(in.Config, s.Target) {
+			continue
+		}
+		out = append(out, s)
+	}
+	return out
+}
+
+// allowedTarget: the sink's destination host is in allowed_hosts (or a
+// subdomain of one).
+func allowedTarget(cfg config.Config, target string) bool {
+	h := targetHost(target)
+	return h != "" && cfg.HostAllowed(h)
+}
+
+// targetHost extracts the host from a URL, user@host:path, or host:port.
+func targetHost(target string) string {
+	f := strings.Fields(target)
+	if len(f) == 0 {
+		return ""
+	}
+	t := f[0]
+	if u, err := url.Parse(t); err == nil && u.Host != "" {
+		return strings.ToLower(u.Hostname())
+	}
+	if i := strings.LastIndex(t, "@"); i >= 0 {
+		t = t[i+1:]
+	}
+	t = strings.SplitN(t, "/", 2)[0]
+	if h, _, err := net.SplitHostPort(t); err == nil {
+		t = h
+	} else {
+		t = strings.SplitN(t, ":", 2)[0]
+	}
+	if !strings.Contains(t, ".") {
+		return "" // not a host name (a file, a remote name like "origin")
+	}
+	return strings.ToLower(t)
 }
 
 func hasGitPush(sinks []shell.Sink) bool {
