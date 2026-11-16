@@ -12,6 +12,7 @@ import (
 	"github.com/durgavarapraveen/provguard/internal/fingerprint"
 	"github.com/durgavarapraveen/provguard/internal/label"
 	"github.com/durgavarapraveen/provguard/internal/protect"
+	"github.com/durgavarapraveen/provguard/internal/shell"
 	"github.com/durgavarapraveen/provguard/internal/store"
 )
 
@@ -30,10 +31,20 @@ func handle(e event.Event, stdout io.Writer, rec *audit.Record) {
 
 	switch e.Kind {
 	case event.PreTool:
+		var an *shell.Analysis
+		if e.ToolName == "Bash" || e.ToolName == "PowerShell" {
+			d := shell.Bash
+			if e.ToolName == "PowerShell" {
+				d = shell.PowerShell
+			}
+			cmd, _ := e.ToolInput["command"].(string)
+			an = shell.Analyze(cmd, d)
+			rec.Sinks = an.SinkStrings()
+		}
 		if !cfg.SelfProtectOn() {
 			return
 		}
-		if v := protect.Check(e, home); v.Deny {
+		if v := protect.Check(e, home, an); v.Deny {
 			out, err := claudecode.PreToolResponse(claudecode.Deny, v.Reason)
 			if err != nil {
 				rec.Error = err.Error()
