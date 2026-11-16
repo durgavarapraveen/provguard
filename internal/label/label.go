@@ -98,7 +98,7 @@ func Post(e event.Event, env Env) Result {
 
 	switch {
 	case e.ToolName == "WebFetch":
-		if !hostAllowed(str(e.ToolInput, "url"), env.Config.AllowedHosts) {
+		if !contentTrusted(str(e.ToolInput, "url"), env.Config) {
 			r.untrusted("web_fetch")
 		}
 	case e.ToolName == "WebSearch":
@@ -198,19 +198,15 @@ func mcpServerFromTool(tool string) string {
 	return rest
 }
 
-func hostAllowed(raw string, allowed []string) bool {
+// contentTrusted reports whether a fetched URL's host is one whose content
+// the user trusts. Review finding (MED): this used allowed_hosts, the egress
+// list, so permitting uploads to a host also trusted everything it serves.
+func contentTrusted(raw string, cfg config.Config) bool {
 	u, err := url.Parse(raw)
 	if err != nil || u.Hostname() == "" {
 		return false
 	}
-	h := strings.ToLower(u.Hostname())
-	for _, a := range allowed {
-		a = strings.ToLower(a)
-		if h == a || strings.HasSuffix(h, "."+a) {
-			return true
-		}
-	}
-	return false
+	return cfg.ContentTrusted(u.Hostname())
 }
 
 func agentID(out json.RawMessage) string {
@@ -278,15 +274,21 @@ var fetchRules = []struct {
 }
 
 var (
-	ghURL       = regexp.MustCompile(`(?i)github\.com[/:]([A-Za-z0-9_.-]+)/`)
-	ghAPIRepo   = regexp.MustCompile(`^/?repos/([A-Za-z0-9_.-]+)/`)
-	ghAPIPublic = regexp.MustCompile(`(?i)issues|comments|discussions|search|reviews|graphql|notifications|events|gists`)
+	ghURL     = regexp.MustCompile(`(?i)github\.com[/:]([A-Za-z0-9_.-]+)/`)
+	ghAPIRepo = regexp.MustCompile(`^/?repos/([A-Za-z0-9_.-]+)/`)
+	// ghAPIPublic: API paths whose response holds text or code an outsider
+	// can write. Review finding (MED): a pull request's own content
+	// (/pulls/N/files, /commits, /compare) comes from the contributor's
+	// branch, which is attacker-written even in the user's own repository.
+	ghAPIPublic = regexp.MustCompile(`(?i)issues|comments|discussions|search|reviews|graphql|notifications|events|gists|pulls?/|/pulls?$|compare|commits|/contents|branches|refs/|/tags|forks`)
 )
 
 // ghSafeJSON are `gh pr view --json` fields that outsiders cannot write.
+// Review finding (MED): "headrefname" is a branch name a contributor
+// chooses, so it carries their text into the context.
 var ghSafeJSON = map[string]bool{
 	"state": true, "url": true, "number": true, "mergedat": true, "mergeable": true, "mergestatestatus": true,
-	"headrefname": true, "baserefname": true, "isdraft": true, "statuscheckrollup": true, "createdat": true,
+	"baserefname": true, "isdraft": true, "statuscheckrollup": true, "createdat": true,
 	"updatedat": true, "closed": true, "id": true, "reviewdecision": true, "additions": true, "deletions": true,
 	"changedfiles": true, "mergecommit": true, "closedat": true,
 }
@@ -303,7 +305,7 @@ func trustedGitHubRead(why, cmd, cwd string, env Env) bool {
 	}
 	seen := false
 	for _, c := range shell.AnalyzeUnknown(cmd).Cmds {
-		if c.Name != "gh" && c.Name != "glab" {
+		if c.Name != "gh" && c.Name != "glab" || len(c.Args) == 0 {
 			continue
 		}
 		seen = true
@@ -369,7 +371,10 @@ func ghCall(args []string) (owner string, safe bool) {
 		return owner, true
 	case "pr":
 		switch sub {
-		case "create", "merge", "close", "ready", "edit", "checkout", "checks", "reopen":
+		// Review finding (MED): "checkout" put a contributor's branch in the
+		// working tree, where every later Read of it looked like the user's
+		// own trusted repository.
+		case "create", "merge", "close", "ready", "edit", "checks", "reopen":
 			return owner, true
 		case "view", "list", "status":
 			if jsonFields == "" {
@@ -456,6 +461,9 @@ func secretCommand(cmd string) string {
 	// Quotes and globs hide names from the token split (cat .en''v, cat .e?v):
 	// use the analyzer's resolved arguments (review finding).
 	for _, c := range shell.AnalyzeUnknown(cmd).Cmds {
+		if len(c.Args) == 0 {
+			continue // a command whose name is known only at run time
+		}
 		for _, a := range c.Args[1:] {
 			if sensitiveArg(a) {
 				return "file:" + path.Base(norm(a))

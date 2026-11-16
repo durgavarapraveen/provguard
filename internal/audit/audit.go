@@ -124,6 +124,33 @@ func Home() (string, error) {
 	return filepath.Join(u, ".provguard"), nil
 }
 
+// redactStrings redacts the fields that callers fill in after FromEvent.
+// Review finding (MED): a policy reason and a sink name quote the call, so a
+// URL or a command that carries a secret put it in the log unredacted,
+// although FromEvent redacted the same text in tool_input.
+func redactStrings(r *Record) {
+	for _, p := range []*string{&r.Reason, &r.Notice, &r.Error, &r.Prompt} {
+		if *p != "" {
+			*p = redact.String(*p)
+		}
+	}
+	r.Sinks = redactEach(r.Sinks)
+	r.Labels = redactEach(r.Labels)
+}
+
+// redactEach copies the list, so redacting the record does not change the
+// strings its caller still holds.
+func redactEach(in []string) []string {
+	if in == nil {
+		return nil
+	}
+	out := make([]string, len(in))
+	for i, s := range in {
+		out[i] = redact.String(s)
+	}
+	return out
+}
+
 // Write appends r to today's log file under home/audit.
 // It uses one write call per line so parallel hook processes do not interleave lines.
 func Write(home string, r Record) error {
@@ -131,6 +158,7 @@ func Write(home string, r Record) error {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
+	redactStrings(&r)
 	// No HTML escaping: keep "->" and "<" readable in the log.
 	var buf bytes.Buffer
 	enc := json.NewEncoder(&buf)

@@ -149,7 +149,10 @@ func psStatement(a *Analysis, toks []psTok, depth int) string {
 	}
 	if first.dyn || callOp && strings.HasPrefix(first.s, "$") {
 		a.sink(Opaque, "dynamic_command", first.s)
-		a.Cmds = append(a.Cmds, Cmd{Name: first.s, Dynamic: true})
+		// Args[0] is always the raw name (see Cmd). This was the one site
+		// that left Args empty, and `& $tool status` then crashed callers
+		// that slice Args[1:], which stopped the labeler mid-event.
+		a.Cmds = append(a.Cmds, Cmd{Name: first.s, Args: []string{first.s}, Dynamic: true})
 		return ""
 	}
 	if strings.HasPrefix(first.s, "[") || strings.HasPrefix(first.s, "(") {
