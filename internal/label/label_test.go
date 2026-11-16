@@ -130,6 +130,38 @@ func TestRepoOwnerTrust(t *testing.T) {
 	}
 }
 
+// Regression: gh reads of the user's own repos tainted sessions (live data).
+func TestGitHubReadOfTrustedRepo(t *testing.T) {
+	env := Env{
+		Config:    config.Config{TrustedRepoOwners: []string{"me"}},
+		RepoOwner: func(string) string { return "me" }, // cwd repo is mine
+	}
+	cases := []struct {
+		cmd       string
+		untrusted bool
+	}{
+		{"gh issue view 12", false},                   // cwd repo, owner me
+		{"gh pr view 3 -R me/app", false},             // explicit own repo
+		{"gh issue view 9 --repo stranger/lib", true}, // someone else's repo
+		{"gh api repos/stranger/lib/issues/1", true},  // someone else's repo
+		{"gh api repos/me/app/pulls", false},          // own repo via API
+		{"gh pr view https://github.com/stranger/x/pull/2", true},
+		{"curl https://api.github.com/repos/me/app", true}, // not gh: still a fetch
+	}
+	for _, c := range cases {
+		e := bash(c.cmd, "body")
+		e.Cwd = "/work/app"
+		if r := Post(e, env); r.Untrusted != c.untrusted {
+			t.Errorf("%q: untrusted=%v want %v (%s)", c.cmd, r.Untrusted, c.untrusted, r.UntrustedReason)
+		}
+	}
+	// No trusted owners configured: gh reads stay untrusted.
+	e := bash("gh issue view 12", "body")
+	if r := Post(e, Env{RepoOwner: func(string) string { return "me" }}); !r.Untrusted {
+		t.Fatal("without trusted_repo_owners gh reads must stay untrusted")
+	}
+}
+
 func TestSecretsAndValues(t *testing.T) {
 	e := post("Read", map[string]any{"file_path": "/p/.env"}, map[string]any{"file": map[string]any{"content": "DB_PASSWORD=sup3rS3cret!\nGH=" + fakeGitHub}})
 	r := Post(e, Env{})

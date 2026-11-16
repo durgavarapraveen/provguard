@@ -30,7 +30,7 @@ import (
 	"strings"
 )
 
-//go:embed attacks/*.json
+//go:embed attacks/*.json benign/*.json
 var files embed.FS
 
 // Step is one hook call.
@@ -55,15 +55,53 @@ type Live struct {
 
 // Case is one attack.
 type Case struct {
-	ID          string            `json:"id"`
-	Name        string            `json:"name"`
-	Source      string            `json:"source"` // public incident or pattern it copies
-	Description string            `json:"description"`
-	Config      map[string]any    `json:"config,omitempty"` // extra config.json keys
-	Steps       []Step            `json:"steps"`
-	Expect      map[string]string `json:"expect"` // profile -> blocked | asked | missed
-	Note        string            `json:"note,omitempty"`
-	Live        *Live             `json:"live,omitempty"`
+	ID          string         `json:"id"`
+	Name        string         `json:"name"`
+	Source      string         `json:"source"` // public incident or pattern it copies
+	Description string         `json:"description"`
+	Config      map[string]any `json:"config,omitempty"` // extra config.json keys
+	// Origin, if set, makes the runner create a real git repo for {{REPO}}
+	// with this origin URL (for owner-based trust checks).
+	Origin string            `json:"origin,omitempty"`
+	Steps  []Step            `json:"steps"`
+	Expect map[string]string `json:"expect"` // profile -> blocked | asked | missed
+	Note   string            `json:"note,omitempty"`
+	Live   *Live             `json:"live,omitempty"`
+	// IntendedRules (benign tasks only): rules that may ask here by design.
+	// Their asks are reported, but not counted as false positives.
+	IntendedRules []string `json:"intended_rules,omitempty"`
+}
+
+// LoadBenign returns the normal-work tasks, with the file's default origin
+// and config applied to each task.
+func LoadBenign() ([]Case, error) {
+	b, err := files.ReadFile("benign/tasks.json")
+	if err != nil {
+		return nil, err
+	}
+	var f struct {
+		Origin string         `json:"origin"`
+		Config map[string]any `json:"config"`
+		Tasks  []Case         `json:"tasks"`
+	}
+	if err := json.Unmarshal(b, &f); err != nil {
+		return nil, fmt.Errorf("benign/tasks.json: %w", err)
+	}
+	for i := range f.Tasks {
+		t := &f.Tasks[i]
+		if t.Origin == "" {
+			t.Origin = f.Origin
+		}
+		cfg := map[string]any{}
+		for k, v := range f.Config {
+			cfg[k] = v
+		}
+		for k, v := range t.Config {
+			cfg[k] = v
+		}
+		t.Config = cfg
+	}
+	return f.Tasks, nil
 }
 
 // Load returns all cases sorted by ID.

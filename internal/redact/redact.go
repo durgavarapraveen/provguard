@@ -5,6 +5,7 @@ package redact
 import (
 	"math"
 	"regexp"
+	"strings"
 )
 
 type rule struct {
@@ -58,7 +59,7 @@ func Find(s string, all bool) []Match {
 	}
 	if all {
 		for _, m := range candidate.FindAllString(s, -1) {
-			if entropy(m) > minEntropy {
+			if entropy(m) > minEntropy && !looksLikePath(m) {
 				out = append(out, Match{"high_entropy", m})
 			}
 		}
@@ -72,11 +73,28 @@ func String(s string) string {
 		s = replace(s, r)
 	}
 	return candidate.ReplaceAllStringFunc(s, func(m string) string {
-		if entropy(m) > minEntropy {
+		if entropy(m) > minEntropy && !looksLikePath(m) {
 			return "[REDACTED:high_entropy]"
 		}
 		return m
 	})
+}
+
+// looksLikePath: file paths have high character entropy but short segments.
+// Found live: Windows temp paths were redacted in the audit log. A path has
+// at least two separators and no segment longer than 48 characters (UUID
+// folders are 36, Go build-cache hashes 42). Secrets with "/" in them (e.g.
+// AWS secret keys) are still caught by the key=value and token rules.
+func looksLikePath(m string) bool {
+	if strings.Count(m, "/") < 2 {
+		return false
+	}
+	for _, seg := range strings.Split(m, "/") {
+		if len(seg) > 48 {
+			return false
+		}
+	}
+	return true
 }
 
 func replace(s string, r rule) string {

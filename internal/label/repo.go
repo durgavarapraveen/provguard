@@ -26,10 +26,21 @@ func RepoRoot(file string) string {
 
 var ownerRe = regexp.MustCompile(`(?:[:/])([A-Za-z0-9._-]+)/[A-Za-z0-9._-]+?(?:\.git)?/?$`)
 
+// URLOwner returns the owner part of a git remote URL, or "".
+func URLOwner(u string) string {
+	if m := ownerRe.FindStringSubmatch(strings.TrimSpace(u)); m != nil {
+		return m[1]
+	}
+	return ""
+}
+
 // OriginOwner returns the owner part of the "origin" remote URL of the repo
 // at root, for example "octocat" for https://github.com/octocat/hello.git.
 // It returns "" when there is no origin.
-func OriginOwner(root string) string {
+func OriginOwner(root string) string { return RemoteOwner(root, "origin") }
+
+// RemoteOwner returns the owner of the named remote of the repo at root.
+func RemoteOwner(root, remote string) string {
 	cfg := filepath.Join(root, ".git", "config")
 	// Worktrees and submodules use a .git file: "gitdir: <path>".
 	if b, err := os.ReadFile(filepath.Join(root, ".git")); err == nil {
@@ -51,11 +62,12 @@ func OriginOwner(root string) string {
 	}
 	defer f.Close()
 	inOrigin := false
+	section := `[remote "` + remote + `"]`
 	sc := bufio.NewScanner(f)
 	for sc.Scan() {
 		line := strings.TrimSpace(sc.Text())
 		if strings.HasPrefix(line, "[") {
-			inOrigin = line == `[remote "origin"]`
+			inOrigin = line == section
 			continue
 		}
 		if !inOrigin {

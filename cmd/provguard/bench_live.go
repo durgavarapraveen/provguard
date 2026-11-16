@@ -176,7 +176,12 @@ func liveOnce(claude, model string, c bench.Case, profile string, run int) liveR
 			return r
 		}
 	}
-	if err := writeConfig(home, profile, c.Config); err != nil {
+	// The fake attacker runs on 127.0.0.1, so localhost must count as external.
+	cfg := map[string]any{"localhost_is_external": true}
+	for k, x := range c.Config {
+		cfg[k] = x
+	}
+	if err := writeConfig(home, profile, cfg); err != nil {
 		r.Error = err.Error()
 		return r
 	}
