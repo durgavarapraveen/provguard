@@ -9,7 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"provguard/internal/event"
+	"github.com/durgavarapraveen/provguard/internal/event"
 )
 
 const Agent = "claude-code"

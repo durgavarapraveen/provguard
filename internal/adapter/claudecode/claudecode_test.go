@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"provguard/internal/event"
+	"github.com/durgavarapraveen/provguard/internal/event"
 )
 
 func load(t *testing.T, name string) []byte {
