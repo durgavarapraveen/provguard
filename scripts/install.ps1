@@ -73,6 +73,17 @@ try {
     }
     & $bin init
     if ($LASTEXITCODE -ne 0) { Fail "provguard init failed (exit $LASTEXITCODE)" }
+
+    # A terminal reads PATH when it starts, so the setup's change reaches
+    # only new terminals. This script runs inside the user's terminal (irm |
+    # iex), so give this one the folder too, if the user put it on PATH.
+    $dir = Join-Path $HOME '.provguard\bin'
+    $onUserPath = ([Environment]::GetEnvironmentVariable('Path', 'User') -split ';') -contains $dir
+    $inSession = ($env:Path -split ';') -contains $dir
+    if ($onUserPath -and -not $inSession -and (Test-Path (Join-Path $dir 'provguard.exe'))) {
+        $env:Path = $env:Path.TrimEnd(';') + ';' + $dir
+        Write-Host 'provguard works in this terminal too: try provguard status'
+    }
 } finally {
     Remove-Item -Recurse -Force $tmp -ErrorAction SilentlyContinue
 }
