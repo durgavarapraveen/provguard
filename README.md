@@ -146,7 +146,8 @@ Method, per-case results and caveats (the traces are author-written; real-agent 
 | GitHub Copilot: VS Code, Copilot app, Copilot CLI | Yes: `provguard init` adds `~/.copilot/hooks/provguard.json` when it finds Copilot; not tested live yet. Copilot asks you itself for "ask" decisions (in CLI autopilot and in the cloud it blocks instead). Cloud agents use only the repository's `.github/hooks`. |
 | OpenAI Codex (CLI, IDE extension) | Yes: `provguard init` adds provguard to `~/.codex/hooks.json` when it finds Codex. **Run `/hooks` in Codex once and trust provguard's hooks**: Codex skips new hooks until you do. Codex does not act on "ask", so provguard blocks instead and offers `provguard allow`. Not tested live yet. |
 | Gemini CLI | Yes: `provguard init` adds provguard to `~/.gemini/settings.json` when it finds Gemini CLI. Gemini CLI hooks can only allow or deny, so provguard blocks where it would ask, and offers `provguard allow`. Not tested live yet. |
-| Antigravity, Windsurf, Kiro, Factory Droid, OpenCode | Not yet (planned adapters) |
+| Devin Desktop (formerly Windsurf) and Devin CLI | Yes, through Devin's support for Claude Code hooks (`read_config_from.claude`, on by default); provguard guards that switch. Devin hooks can only approve or block, so provguard blocks where it would ask. Not tested live yet. |
+| Antigravity, Kiro, Factory Droid, OpenCode | Not yet (planned adapters) |
 
 Each agent has a small adapter in `internal/adapter/<agent>` that implements `core.Adapter`; the checks themselves are shared.
 
