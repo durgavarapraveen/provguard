@@ -21,12 +21,13 @@ func TestMain(m *testing.M) {
 	}
 	// Tests never change the real PATH: they get an in-memory one.
 	userPath = fakeUserPath(map[string]bool{})
-	// ... nor a real Copilot folder: COPILOT_HOME points at an empty temp dir.
+	// ... nor real Copilot or Codex folders: they point at an empty temp dir.
 	d, err := os.MkdirTemp("", "pg-copilot-home")
 	if err != nil {
 		panic(err)
 	}
 	os.Setenv("COPILOT_HOME", filepath.Join(d, "none"))
+	os.Setenv("CODEX_HOME", filepath.Join(d, "none-codex"))
 	code := m.Run()
 	os.RemoveAll(d)
 	os.Exit(code)
