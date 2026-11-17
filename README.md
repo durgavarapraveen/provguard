@@ -35,8 +35,13 @@ provguard setup: 3 short questions. Press Enter to take the default.
   1) Ask me each time (recommended)
   2) Block it
 
+Add provguard to your PATH, so the provguard command works in any folder? (Y/n)
+
 ✔ provguard is on. Mode: balanced (protect: stops leaks, asks before risky steps).
+✔ Added ~/.provguard/bin to your user PATH. Open a new terminal to use the provguard command.
 ```
+
+`provguard uninstall` takes it off your PATH again.
 
 From source instead (Go 1.26+): `go install github.com/durgavarapraveen/provguard/cmd/provguard@latest`, then `provguard init`.
 
