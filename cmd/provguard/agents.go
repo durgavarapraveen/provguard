@@ -6,6 +6,7 @@ import (
 
 	"github.com/durgavarapraveen/provguard/internal/adapter/codex"
 	"github.com/durgavarapraveen/provguard/internal/adapter/copilot"
+	"github.com/durgavarapraveen/provguard/internal/adapter/droid"
 	"github.com/durgavarapraveen/provguard/internal/adapter/gemini"
 	"github.com/durgavarapraveen/provguard/internal/adapter/kiro"
 	"github.com/durgavarapraveen/provguard/internal/install"
@@ -47,6 +48,12 @@ var otherAgents = []otherAgent{
 		present:   kiro.Present,
 		install:   kiro.Install,
 		uninstall: kiro.Uninstall,
+	},
+	{
+		name:      "Factory Droid",
+		present:   droid.Present,
+		install:   droid.Install,
+		uninstall: droid.Uninstall,
 	},
 }
 

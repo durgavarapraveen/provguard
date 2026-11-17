@@ -336,3 +336,58 @@ func HooksJSON(s map[string]any) string {
 	b, _ := json.MarshalIndent(h, "", "  ")
 	return string(b)
 }
+
+// AddHooksFile adds provguard's hooks to the Claude-style hooks map in the
+// JSON file at path, keeping everything else in the file, and saves it.
+// wrapped is true when the map is under a top-level "hooks" key (Codex's
+// hooks.json, Gemini's settings.json) and false when the file is the map
+// itself (Factory Droid's hooks.json).
+func AddHooksFile(path string, wrapped bool, events []string, entry func(ev string) map[string]any, matcher func(ev string) string) error {
+	file, s, err := loadHooks(path, wrapped)
+	if err != nil {
+		return err
+	}
+	if err := AddHooks(s, events, entry, matcher); err != nil {
+		return err
+	}
+	_, err = Save(path, unwrap(file, s, wrapped))
+	return err
+}
+
+// RemoveHooksFile removes provguard's hooks from the file at path (see
+// AddHooksFile). It reports whether there were any.
+func RemoveHooksFile(path string, wrapped bool) (bool, error) {
+	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	file, s, err := loadHooks(path, wrapped)
+	if err != nil {
+		return false, err
+	}
+	if Remove(s) == 0 {
+		return false, nil
+	}
+	_, err = Save(path, unwrap(file, s, wrapped))
+	return err == nil, err
+}
+
+// loadHooks returns the file's content and a map whose "hooks" key is the
+// hooks map, whatever the file's layout.
+func loadHooks(path string, wrapped bool) (file, s map[string]any, err error) {
+	file, err = Load(path)
+	if err != nil || wrapped {
+		return file, file, err
+	}
+	return file, map[string]any{"hooks": file}, nil
+}
+
+func unwrap(file, s map[string]any, wrapped bool) map[string]any {
+	if wrapped {
+		return file
+	}
+	m, _ := s["hooks"].(map[string]any)
+	if m == nil {
+		m = map[string]any{}
+	}
+	return m
+}

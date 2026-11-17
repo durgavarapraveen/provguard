@@ -16,6 +16,7 @@ import (
 	"github.com/durgavarapraveen/provguard/internal/adapter/core"
 	"github.com/durgavarapraveen/provguard/internal/adapter/cursor"
 	"github.com/durgavarapraveen/provguard/internal/adapter/devin"
+	"github.com/durgavarapraveen/provguard/internal/adapter/droid"
 	"github.com/durgavarapraveen/provguard/internal/adapter/gemini"
 	"github.com/durgavarapraveen/provguard/internal/adapter/kiro"
 )
@@ -27,6 +28,7 @@ var adapters = []core.Adapter{
 	devin.Adapter{},   // Devin (formerly Windsurf) also runs the Claude Code hooks
 	copilot.Adapter{}, // never detected; named by its hooks (--agent copilot)
 	codex.Adapter{},   // never detected; named by its hooks (--agent codex)
+	droid.Adapter{},   // never detected; named by its hooks (--agent factory-droid)
 	gemini.Adapter{},  // never detected; named by its hooks (--agent gemini-cli)
 	kiro.Adapter{},    // never detected; named by its hooks (--agent kiro)
 	claudecode.Adapter{},
