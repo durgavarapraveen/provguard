@@ -15,6 +15,7 @@ import (
 	"github.com/durgavarapraveen/provguard/internal/adapter/copilot"
 	"github.com/durgavarapraveen/provguard/internal/adapter/core"
 	"github.com/durgavarapraveen/provguard/internal/adapter/cursor"
+	"github.com/durgavarapraveen/provguard/internal/adapter/gemini"
 )
 
 // adapters in detection order: agents with a distinctive payload first,
@@ -23,6 +24,7 @@ var adapters = []core.Adapter{
 	cursor.Adapter{},
 	copilot.Adapter{}, // never detected; named by its hooks (--agent copilot)
 	codex.Adapter{},   // never detected; named by its hooks (--agent codex)
+	gemini.Adapter{},  // never detected; named by its hooks (--agent gemini-cli)
 	claudecode.Adapter{},
 }
 
