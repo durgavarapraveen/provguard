@@ -177,7 +177,7 @@ func Remove(s map[string]any) int {
 // Options change how hooks are written.
 type Options struct {
 	// FailClosed adds "onFailure": "block" to PreToolUse, so a crashed or
-	// timed-out hook blocks the call (strict profile; finding F2).
+	// timed-out hook blocks the call instead of failing open (strict profile).
 	FailClosed bool
 }
 
@@ -315,9 +315,9 @@ func Save(path string, s map[string]any) (string, error) {
 // KeepBackups is how many settings backups init keeps.
 const KeepBackups = 3
 
-// pruneBackups deletes all but the newest keep backups of path. Review
-// finding (LOW): one backup per init piled up, and backups can hold env
-// secrets. The timestamp in the name sorts in time order.
+// pruneBackups deletes all but the newest keep backups of path, so backups
+// do not pile up, one per init; they can hold env secrets. The timestamp in
+// the name sorts in time order.
 func pruneBackups(path string, keep int) {
 	files, _ := filepath.Glob(path + ".provguard-bak-*")
 	sort.Strings(files)

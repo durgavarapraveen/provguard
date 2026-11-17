@@ -99,9 +99,9 @@ func highEntropy(s string) [][2]int {
 }
 
 // inPathPosition: the string starts a path ("/…") or continues one (after
-// "C:", ".", "~", "/" or "\"). Review finding (MED): the path exemption alone
-// let a slash-containing AWS secret through ("… aws_secret_access_key
-// wJalr…/K7MD…/bPxR…"), because a secret after a space is never a path.
+// "C:", ".", "~", "/" or "\"). A token after a space is not a path, so a
+// slash-containing AWS secret ("… aws_secret_access_key wJalr…/K7MD…/bPxR…")
+// is still redacted.
 func inPathPosition(s string, start int) bool {
 	if s[start] == '/' {
 		return true
@@ -110,7 +110,7 @@ func inPathPosition(s string, start int) bool {
 }
 
 // looksLikePath: file paths have high character entropy but short segments.
-// Found live: Windows temp paths were redacted in the audit log. A path has
+// They are kept so audit logs stay readable. A path has
 // at least two separators and no segment longer than 48 characters (UUID
 // folders are 36, Go build-cache hashes 42).
 func looksLikePath(m string) bool {
@@ -198,4 +198,22 @@ func entropy(s string) float64 {
 		h -= p * math.Log2(p)
 	}
 	return h
+}
+
+// OneLine puts s on one line, at most max characters long.
+// The text may come from an agent or a repository, so control characters are
+// replaced: an escape sequence could otherwise change the user's terminal.
+// It cuts at a character boundary, not inside one.
+func OneLine(s string, max int) string {
+	s = strings.Map(func(r rune) rune {
+		if r < 0x20 || r >= 0x7f && r <= 0x9f {
+			return ' '
+		}
+		return r
+	}, s)
+	s = strings.Join(strings.Fields(s), " ")
+	if r := []rune(s); len(r) > max {
+		return string(r[:max]) + "…"
+	}
+	return s
 }

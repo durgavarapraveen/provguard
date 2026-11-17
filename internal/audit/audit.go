@@ -91,7 +91,7 @@ const DefaultRetentionDays = 30
 
 // GC deletes daily log files older than days (by the date in the file name).
 // days <= 0 keeps everything. It returns the number of files removed.
-// Review finding (MED): logs grew forever.
+// Old logs are deleted so the log folder does not grow without limit.
 func GC(home string, days int, now time.Time) int {
 	if days <= 0 {
 		return 0
@@ -125,9 +125,9 @@ func Home() (string, error) {
 }
 
 // redactStrings redacts the fields that callers fill in after FromEvent.
-// Review finding (MED): a policy reason and a sink name quote the call, so a
-// URL or a command that carries a secret put it in the log unredacted,
-// although FromEvent redacted the same text in tool_input.
+// A policy reason and a sink name quote the call, so without this a URL or a
+// command that carries a secret would reach the log unredacted, although
+// FromEvent redacted the same text in tool_input.
 func redactStrings(r *Record) {
 	for _, p := range []*string{&r.Reason, &r.Notice, &r.Error, &r.Prompt} {
 		if *p != "" {

@@ -7,7 +7,7 @@
 coverage.*
 
 # Local agent and editor state
-.claude/settings.local.json
+.claude/
 .idea/
 .vscode/
 
@@ -16,14 +16,18 @@ coverage.*
 .env.*
 !.env.example
 
-# Local project memory (not published)
+# Local agent notes
 .agent/
 
-# CI is local-only for now. Delete this line when you add CI.
+# No CI workflows yet
 .github/
 
-# Local recordings that were not reviewed for secrets
+# Raw hook recordings (may hold secrets; commit only reviewed copies)
 testdata/**/raw/
 
-# Personal launch drafts (blog, posts, disclosure); not published
+# Local drafts
 drafts/
+
+# OS files
+.DS_Store
+Thumbs.db

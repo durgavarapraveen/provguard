@@ -58,7 +58,7 @@ var commandToolName = regexp.MustCompile(`(?i)(?:^|_)(?:run_in_terminal|run_comm
 
 // CommandTool returns the shell command of an MCP tool that runs commands
 // (for example the desktop app's mcp__terminal__run_in_terminal). Such tools
-// must be checked like Bash, or they bypass every shell rule (week 7).
+// must be checked like Bash, or they bypass every shell rule.
 func CommandTool(e event.Event) (string, bool) {
 	if e.ToolName == event.ShellTool {
 		// A shell command whose shell the agent does not say (see
@@ -142,13 +142,13 @@ func Post(e event.Event, env Env) Result {
 				}
 			}
 			// Grep prints matching lines of the files it searches, so grepping
-			// .env exposes its values like Read does (review finding).
+			// .env exposes its values like Read does.
 			if SensitivePath(p) {
-				r.sensitive("file:" + path.Base(norm(p)))
+				r.sensitive("file:" + path.Base(shell.NormPath(p)))
 			}
 		}
 		if g := str(e.ToolInput, "glob"); e.ToolName == "Grep" && g != "" && sensitiveArg(g) {
-			r.sensitive("file:" + path.Base(norm(g)))
+			r.sensitive("file:" + path.Base(shell.NormPath(g)))
 		}
 	case e.ToolName == "Agent":
 		if id := agentID(e.ToolOutput); id != "" && env.AgentTainted != nil && env.AgentTainted(id) {
@@ -157,7 +157,7 @@ func Post(e event.Event, env Env) Result {
 	}
 
 	// Secrets: all patterns for known-sensitive content, strong patterns elsewhere.
-	// Test fixtures hold fake tokens on purpose (finding F16), so a token
+	// Test fixtures hold fake tokens on purpose, so a token
 	// found while reading or editing one file of tests does not count.
 	// The tokens are still fingerprinted, so a real token committed to a
 	// test file cannot be sent out unnoticed (rule 1); only the session
@@ -188,8 +188,8 @@ func testFixture(e event.Event) bool {
 	if p == "" || SensitivePath(p) {
 		return false
 	}
-	// Judge the file the OS opens, not the name. Review finding: a link
-	// testdata/c → ~/.aws/credentials passed as a fixture. A file that does
+	// Judge the file the OS opens, not the name: a link
+	// testdata/c → ~/.aws/credentials is not a fixture. A file that does
 	// not exist yet (Write) is judged by its name.
 	if !filepath.IsAbs(p) && e.Cwd != "" {
 		p = filepath.Join(e.Cwd, p)
@@ -204,7 +204,7 @@ func testFixture(e event.Event) bool {
 
 // fixturePath: the path names a test file or a file under a test-data folder.
 func fixturePath(p string) bool {
-	n := norm(p)
+	n := shell.NormPath(p)
 	base := path.Base(n)
 	for _, dir := range strings.Split(path.Dir(n), "/") {
 		switch dir {
@@ -245,9 +245,6 @@ func str(m map[string]any, k string) string {
 	return s
 }
 
-// norm lower-cases and uses forward slashes so rules work on Windows paths.
-func norm(p string) string { return strings.ToLower(strings.ReplaceAll(p, `\`, "/")) }
-
 func mcpServerFromTool(tool string) string {
 	rest := strings.TrimPrefix(tool, "mcp__")
 	if i := strings.Index(rest, "__"); i > 0 {
@@ -257,8 +254,8 @@ func mcpServerFromTool(tool string) string {
 }
 
 // contentTrusted reports whether a fetched URL's host is one whose content
-// the user trusts. Review finding (MED): this used allowed_hosts, the egress
-// list, so permitting uploads to a host also trusted everything it serves.
+// the user trusts. It does not use allowed_hosts, the egress list:
+// permitting uploads to a host must not trust everything it serves.
 func contentTrusted(raw string, cfg config.Config) bool {
 	u, err := url.Parse(raw)
 	if err != nil || u.Hostname() == "" {
@@ -335,15 +332,15 @@ var (
 	ghURL     = regexp.MustCompile(`(?i)github\.com[/:]([A-Za-z0-9_.-]+)/`)
 	ghAPIRepo = regexp.MustCompile(`^/?repos/([A-Za-z0-9_.-]+)/`)
 	// ghAPIPublic: API paths whose response holds text or code an outsider
-	// can write. Review finding (MED): a pull request's own content
+	// can write. A pull request's own content
 	// (/pulls/N/files, /commits, /compare) comes from the contributor's
 	// branch, which is attacker-written even in the user's own repository.
 	ghAPIPublic = regexp.MustCompile(`(?i)issues|comments|discussions|search|reviews|graphql|notifications|events|gists|pulls?/|/pulls?$|compare|commits|/contents|branches|refs/|/tags|forks`)
 )
 
 // ghSafeJSON are `gh pr view --json` fields that outsiders cannot write.
-// Review finding (MED): "headrefname" is a branch name a contributor
-// chooses, so it carries their text into the context.
+// "headrefname" is left out: it is a branch name a contributor chooses,
+// so it carries their text into the context.
 var ghSafeJSON = map[string]bool{
 	"state": true, "url": true, "number": true, "mergedat": true, "mergeable": true, "mergestatestatus": true,
 	"baserefname": true, "isdraft": true, "statuscheckrollup": true, "createdat": true,
@@ -352,11 +349,11 @@ var ghSafeJSON = map[string]bool{
 }
 
 // trustedGitHubRead reports whether every gh/glab call in cmd only reads
-// content the user's own accounts wrote. Found live: gh commands on the
-// user's own repo were the main source of untrusted labels (10 of 13).
-// Review findings: one trusted -R anywhere used to trust the whole command,
-// and issue/PR/discussion text is attacker-written even in your own public
-// repo, so those are never trusted by repo owner alone.
+// content the user's own accounts wrote, because gh commands on the user's
+// own repo are a common source of needless untrusted labels. Every call must
+// qualify, not just one trusted -R. Issue/PR/discussion text is
+// attacker-written even in your own public repo, so it is never trusted by
+// repo owner alone.
 func trustedGitHubRead(why, cmd, cwd string, env Env) bool {
 	if why != "github_cli" && why != "glab_cli" || len(env.Config.TrustedRepoOwners) == 0 {
 		return false
@@ -429,9 +426,9 @@ func ghCall(args []string) (owner string, safe bool) {
 		return owner, true
 	case "pr":
 		switch sub {
-		// Review finding (MED): "checkout" put a contributor's branch in the
-		// working tree, where every later Read of it looked like the user's
-		// own trusted repository.
+		// "checkout" is not listed: it puts a contributor's branch in the
+		// working tree, where every later Read of it would look like the
+		// user's own trusted repository.
 		case "create", "merge", "close", "ready", "edit", "checks", "reopen":
 			return owner, true
 		case "view", "list", "status":
@@ -471,7 +468,7 @@ var fetchDetails = []string{"curl", "wget", "http", "https", "xh", "aria2c", "in
 
 // fetchCommand names the reason a command's output is remote content. The
 // regex rules catch gh/glab; the shell analyzer catches clients called by
-// path (/usr/bin/curl, "C:\…\curl.exe") and inline-code fetches (review).
+// path (/usr/bin/curl, "C:\…\curl.exe") and inline-code fetches.
 func fetchCommand(cmd string) string {
 	for _, r := range fetchRules {
 		if r.re.MatchString(cmd) {
@@ -513,18 +510,18 @@ func secretCommand(cmd string) string {
 	}
 	for _, tok := range tokenSplit.Split(cmd, -1) {
 		if tok != "" && SensitivePath(tok) {
-			return "file:" + path.Base(norm(tok))
+			return "file:" + path.Base(shell.NormPath(tok))
 		}
 	}
 	// Quotes and globs hide names from the token split (cat .en''v, cat .e?v):
-	// use the analyzer's resolved arguments (review finding).
+	// use the analyzer's resolved arguments.
 	for _, c := range shell.AnalyzeUnknown(cmd).Cmds {
 		if len(c.Args) == 0 {
 			continue // a command whose name is known only at run time
 		}
 		for _, a := range c.Args[1:] {
 			if sensitiveArg(a) {
-				return "file:" + path.Base(norm(a))
+				return "file:" + path.Base(shell.NormPath(a))
 			}
 		}
 	}
@@ -543,7 +540,7 @@ func sensitiveArg(a string) bool {
 	if !strings.ContainsAny(a, "*?[") {
 		return false
 	}
-	base := path.Base(norm(a))
+	base := path.Base(shell.NormPath(a))
 	for _, c := range sensitiveCandidates {
 		if ok, _ := path.Match(base, c); ok {
 			return true
@@ -560,7 +557,7 @@ var vendorDirs = []string{
 }
 
 func vendorPath(p string) string {
-	n := "/" + strings.TrimPrefix(norm(p), "/")
+	n := "/" + strings.TrimPrefix(shell.NormPath(p), "/")
 	for _, d := range vendorDirs {
 		if strings.Contains(n, d) {
 			return strings.Trim(d, "/")
@@ -574,7 +571,7 @@ var sensitiveNames = map[string]bool{
 	".npmrc": true, ".pypirc": true, ".git-credentials": true, ".pgpass": true,
 	"secrets.json": true, "secrets.yaml": true, "secrets.yml": true,
 	"service-account.json": true,
-	// review: Claude's own OAuth token, gcloud ADC, and other credential stores
+	// Claude's own OAuth token, gcloud ADC, and other credential stores
 	".credentials.json": true, "application_default_credentials.json": true, ".htpasswd": true,
 	".dockercfg": true, ".vault-token": true, ".boto": true, ".s3cfg": true, ".terraformrc": true,
 	"terraform.tfstate": true, "terraform.tfstate.backup": true,
@@ -589,7 +586,7 @@ var sshKey = regexp.MustCompile(`^id_(?:rsa|dsa|ecdsa|ed25519)(?:_[a-z0-9]+)?$`)
 
 // SensitivePath reports whether a file path usually holds secrets.
 func SensitivePath(p string) bool {
-	n := norm(p)
+	n := shell.NormPath(p)
 	base := path.Base(n)
 	switch {
 	case base == ".env":

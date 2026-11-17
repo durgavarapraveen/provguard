@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-// H1: code provguard cannot read could grant itself a blocked call.
+// Code provguard cannot read must not grant itself a blocked call.
 func TestAuditAllowOnceVerb(t *testing.T) {
 	for name, cmd := range map[string]string{
 		"python -c": `python3 -c "import os; os.system('provguard allow 0123456789')"`,
@@ -18,8 +18,8 @@ func TestAuditAllowOnceVerb(t *testing.T) {
 	}
 }
 
-// H3: a script file that refers to protected things, however it is spelled
-// and however much filler comes first.
+// A script file that refers to protected things is blocked, however it is
+// spelled and however much filler comes first.
 func TestAuditScriptScan(t *testing.T) {
 	dir := t.TempDir()
 	home := filepath.Join(dir, "home", ".provguard")
@@ -50,7 +50,8 @@ func TestAuditScriptScan(t *testing.T) {
 	}
 }
 
-// H2: the binary copied out of any folder, then run under another name.
+// Copying the binary out of any folder, to run it under another name, is
+// blocked.
 func TestAuditCopyBinary(t *testing.T) {
 	for name, cmd := range map[string]string{
 		"which":     "cp $(which provguard) /tmp/pg",

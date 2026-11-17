@@ -6,8 +6,8 @@ import (
 	"github.com/durgavarapraveen/provguard/internal/shell"
 )
 
-// Review findings 1–5: ways a gh write left a session that read untrusted
-// content and secrets while it counted as "your own repository".
+// A gh write must not let data leave a session that read untrusted content
+// and secrets just because the target counts as "your own repository".
 // GHRepoTrusted here trusts the current folder, any cd target and me/app.
 func TestGHBypassesFromReview(t *testing.T) {
 	trusted := func(r string) bool { return r == "." || r == "me/app" || len(r) > 0 && r[0] == '@' }

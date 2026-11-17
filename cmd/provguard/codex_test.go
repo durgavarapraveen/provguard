@@ -13,13 +13,9 @@ import (
 // hookSpecificOutput shape.
 func codexCall(t *testing.T, s *session, ev string, fields map[string]any) string {
 	t.Helper()
-	p := map[string]any{"hook_event_name": ev, "session_id": "cdx-1", "turn_id": "t", "cwd": s.home, "model": "m", "permission_mode": "default"}
-	for k, v := range fields {
-		p[k] = v
-	}
-	b, _ := json.Marshal(p)
+	in := hookInput(map[string]any{"hook_event_name": ev, "session_id": "cdx-1", "turn_id": "t", "cwd": s.home, "model": "m", "permission_mode": "default"}, fields)
 	var out bytes.Buffer
-	runAgentHook(bytes.NewReader(b), &out, ev, "codex")
+	runAgentHook(in, &out, ev, "codex")
 	var o struct {
 		H struct {
 			D string `json:"permissionDecision"`

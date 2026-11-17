@@ -151,8 +151,8 @@ func (a *Analysis) write(p, op string, dynamic bool) {
 		return
 	}
 	// classify() only sees resolved strings, so detect run-time parts from
-	// the text: substitutions, variables, globs (review: cp/mv targets lost
-	// their dynamic flag).
+	// the text: substitutions, variables, globs (this also covers cp/mv
+	// targets).
 	dynamic = dynamic || strings.ContainsAny(p, "$*?[`") || strings.Contains(p, "<(")
 	a.Writes = append(a.Writes, Write{Path: p, Op: op, Dynamic: dynamic})
 }
@@ -172,10 +172,10 @@ var ghSafeGit = set("status", "log", "diff", "show", "add", "commit", "push", "p
 var ghUnsafeGH = set("repo set-default", "repo clone", "auth login", "auth switch", "config set", "alias set")
 
 // scopeGHTargets resolves "." (the current folder's repository) in gh
-// write targets for the whole command line. Review finding (CRIT): the hook
-// checked the folder as it was before the command ran, so
-// `cd clone-of-attacker && gh issue create …` and
-// `gh repo set-default attacker/x && gh issue create …` passed. "." stays
+// write targets for the whole command line. The hook sees the folder as it
+// is before the command runs, so `cd clone-of-attacker && gh issue create …`
+// and `gh repo set-default attacker/x && gh issue create …` can change which
+// repository "." means by the time gh runs. "." stays
 // only when nothing else in the line can change the folder, the
 // environment, the remotes or gh's default; one literal cd becomes "@DIR".
 func (a *Analysis) scopeGHTargets() {
@@ -261,7 +261,7 @@ func (a *Analysis) finish() {
 			a.sink(Persist, "path:"+where, w.Path)
 		}
 		if w.Dynamic && (w.Op == "write" || w.Op == "append" || w.Op == "link") && unknownTarget(w.Path) {
-			// Review finding: a path built at run time ("$(printf …)") can
+			// A path built at run time ("$(printf …)") can
 			// name any file, including protected ones.
 			a.sink(Opaque, "dynamic_write", w.Path)
 		}
@@ -294,8 +294,7 @@ func unknownTarget(p string) bool {
 // folder variables ($HOME, $env:USERPROFILE, $env:TEMP, …) and ends in a
 // literal file name, so the program is known before it runs. Every check
 // that goes by program name (self-protection, sinks) then applies to it.
-// Found live: & "$env:USERPROFILE\.provguard\bin\provguard.exe" version was
-// read as an unknown command.
+// Example: & "$env:USERPROFILE\.provguard\bin\provguard.exe" version.
 func knownProgramPath(p string) bool {
 	if !strings.Contains(p, "$") || unknownTarget(p) {
 		return false
@@ -312,12 +311,13 @@ func isNullDevice(p string) bool {
 	return false
 }
 
-// norm lower-cases and uses forward slashes.
-func norm(p string) string { return strings.ToLower(strings.ReplaceAll(p, `\`, "/")) }
+// NormPath lower-cases p and uses forward slashes, so path rules work on
+// Windows paths too.
+func NormPath(p string) string { return strings.ToLower(strings.ReplaceAll(p, `\`, "/")) }
 
 // baseName returns the lower-case program name without directory or .exe.
 func baseName(s string) string {
-	b := path.Base(norm(s))
+	b := path.Base(NormPath(s))
 	for _, ext := range []string{".exe", ".cmd", ".bat", ".com"} {
 		b = strings.TrimSuffix(b, ext)
 	}
@@ -332,7 +332,7 @@ var persistBases = map[string]string{
 	".mcp.json": "agent_config", "claude.md": "agent_config", "agents.md": "agent_config",
 	".cursorrules": "agent_config", ".windsurfrules": "agent_config", "authorized_keys": "ssh",
 	".npmrc": "package_config", ".pypirc": "package_config",
-	// review (MED): more files that run commands later
+	// more files whose contents run as commands later
 	"authorized_keys2": "ssh", ".bash_aliases": "shell_rc", ".bash_logout": "shell_rc", ".zlogout": "shell_rc",
 	".envrc": "direnv", ".pre-commit-config.yaml": "git_hooks", "lefthook.yml": "git_hooks",
 }
@@ -348,7 +348,7 @@ var persistDirs = []struct{ dir, name string }{
 
 // PersistPath returns a short name if writing p can persist across sessions.
 func PersistPath(p string) string {
-	n := norm(p)
+	n := NormPath(p)
 	if strings.Contains(n, "$profile") {
 		return "shell_rc"
 	}

@@ -1,8 +1,8 @@
 // Package protect stops an agent from turning provguard off.
 //
-// Finding F3: one write of {"disableAllHooks": true} to a project
-// .claude/settings.json silently disabled user-level hooks mid-session.
-// Settings reload with a lag, so the block must happen in PreToolUse.
+// One write of {"disableAllHooks": true} to a project .claude/settings.json
+// silently disables user-level hooks mid-session. Settings reload with a
+// lag, so the block must happen in PreToolUse.
 //
 // Every path is checked in three forms: as written, lexically cleaned, and
 // as the OS will really resolve it (canonical: junctions, symlinks, 8.3
@@ -69,12 +69,10 @@ func Check(e event.Event, home string, an *shell.Analysis) Verdict {
 	return checkToolPaths(e, home)
 }
 
-func norm(p string) string { return strings.ToLower(strings.ReplaceAll(p, `\`, "/")) }
-
 // IsSettingsFile reports whether p names a Claude Code settings file (user
 // or project), lexically. Callers that need the real file use protectedPath.
 func IsSettingsFile(p string) bool {
-	return settingsSegs(strings.Split(path.Clean(norm(lexical(p))), "/"))
+	return settingsSegs(strings.Split(path.Clean(shell.NormPath(lexical(p))), "/"))
 }
 
 // settingsReason marks a settings file that can register or switch off
@@ -96,7 +94,7 @@ func settingsSegs(segs []string) bool {
 	if n < 2 {
 		return false
 	}
-	if !segMatch(segs[n-1], "settings.json") && !segMatch(segs[n-1], "settings.local.json") {
+	if !settingsName(segs[n-1]) {
 		return false
 	}
 	// A folder computed at run time ("$(echo .claude)/settings.json",
@@ -107,33 +105,18 @@ func settingsSegs(segs []string) bool {
 		segMatch(dir, "copilot") && n >= 3 && segMatch(segs[n-3], ".github")
 }
 
-// devinConfig: Devin's config files, which can hold hooks and
-// read_config_from (turning off read_config_from.claude stops Devin from
-// running the Claude Code hooks): .devin/config[.local].json in a project,
-// and devin/config.json in the user's config folder (~/.config/devin, or
-// %APPDATA%\devin on Windows). Only their guarded keys are protected.
-func devinConfig(segs []string) bool {
-	n := len(segs)
-	if n < 2 || !segMatch(segs[n-2], ".devin") && !segMatch(segs[n-2], "devin") {
-		return false
-	}
-	return segMatch(segs[n-1], "config.json") || segMatch(segs[n-1], "config.local.json")
+// settingsName: the segment is settings.json or settings.local.json.
+func settingsName(seg string) bool {
+	return segMatch(seg, "settings.json") || segMatch(seg, "settings.local.json")
 }
 
-// devinHooksFile: .devin/hooks.v1.json, a file of hooks only.
-func devinHooksFile(segs []string) bool {
+// fileIn: the path ends in dir/<one of names>.
+func fileIn(segs []string, dir string, names ...string) bool {
 	n := len(segs)
-	return n >= 2 && segMatch(segs[n-2], ".devin") && segMatch(segs[n-1], "hooks.v1.json")
-}
-
-// codexConfig: a file in a .codex folder that can register hooks or turn
-// them off ([features] hooks = false in config.toml), user or project level.
-func codexConfig(segs []string) bool {
-	n := len(segs)
-	if n < 2 || !segMatch(segs[n-2], ".codex") {
+	if n < 2 || !segMatch(segs[n-2], dir) {
 		return false
 	}
-	for _, name := range []string{"config.toml", "hooks.json", "requirements.toml"} {
+	for _, name := range names {
 		if segMatch(segs[n-1], name) {
 			return true
 		}
@@ -141,11 +124,31 @@ func codexConfig(segs []string) bool {
 	return false
 }
 
+// devinConfig: Devin's config files, which can hold hooks and
+// read_config_from (turning off read_config_from.claude stops Devin from
+// running the Claude Code hooks): .devin/config[.local].json in a project,
+// and devin/config.json in the user's config folder (~/.config/devin, or
+// %APPDATA%\devin on Windows). Only their guarded keys are protected.
+func devinConfig(segs []string) bool {
+	return fileIn(segs, ".devin", "config.json", "config.local.json") ||
+		fileIn(segs, "devin", "config.json", "config.local.json")
+}
+
+// devinHooksFile: .devin/hooks.v1.json, a file of hooks only.
+func devinHooksFile(segs []string) bool {
+	return fileIn(segs, ".devin", "hooks.v1.json")
+}
+
+// codexConfig: a file in a .codex folder that can register hooks or turn
+// them off ([features] hooks = false in config.toml), user or project level.
+func codexConfig(segs []string) bool {
+	return fileIn(segs, ".codex", "config.toml", "hooks.json", "requirements.toml")
+}
+
 // factoryHooks: Factory Droid's .factory/hooks.json, or its legacy
 // .factory/hooks/ folder.
 func factoryHooks(segs []string) bool {
-	n := len(segs)
-	return hooksDirOf(segs, ".factory") || n >= 2 && segMatch(segs[n-2], ".factory") && segMatch(segs[n-1], "hooks.json")
+	return hooksDirOf(segs, ".factory") || fileIn(segs, ".factory", "hooks.json")
 }
 
 // antigravityHooks: Antigravity's hook files, ~/.gemini/config/hooks.json
@@ -153,13 +156,9 @@ func factoryHooks(segs []string) bool {
 // global one. An entry there can turn provguard's off ("enabled": false).
 func antigravityHooks(segs []string) bool {
 	n := len(segs)
-	if n >= 2 && segMatch(segs[n-1], "config") && segMatch(segs[n-2], ".gemini") {
-		return true
-	}
-	if n < 2 || !segMatch(segs[n-1], "hooks.json") {
-		return false
-	}
-	return segMatch(segs[n-2], ".agents") || segMatch(segs[n-2], "config") && n >= 3 && segMatch(segs[n-3], ".gemini")
+	return fileIn(segs, ".gemini", "config") ||
+		fileIn(segs, ".agents", "hooks.json") ||
+		fileIn(segs, "config", "hooks.json") && n >= 3 && segMatch(segs[n-3], ".gemini")
 }
 
 // opencodeConfig: an OpenCode config file (opencode.json[c] can disable a
@@ -204,7 +203,7 @@ func underDir(p, dir string) bool {
 	if dir == "" || p == "" {
 		return false
 	}
-	n, h := path.Clean(norm(p)), strings.TrimSuffix(path.Clean(norm(dir)), "/")
+	n, h := path.Clean(shell.NormPath(p)), strings.TrimSuffix(path.Clean(shell.NormPath(dir)), "/")
 	return n == h || strings.HasPrefix(n, h+"/")
 }
 
@@ -261,14 +260,14 @@ func protectedPath(p, op, home, cwd string, cds []string) string {
 	claude := userClaudeDir()
 	claudes := []string{claude, canonical(claude, "")}
 	for _, f := range pathForms(p, cwd, cds) {
-		segs := strings.Split(path.Clean(norm(f)), "/")
+		segs := strings.Split(path.Clean(shell.NormPath(f)), "/")
 		last := segs[len(segs)-1]
 		switch {
 		case settingsSegs(segs) || devinConfig(segs):
 			return settingsReason
 		case devinHooksFile(segs):
 			return "Devin's hook configuration"
-		case (segMatch(last, "settings.json") || segMatch(last, "settings.local.json")) && cdIntoClaude(cds):
+		case settingsName(last) && cdIntoClaude(cds):
 			return settingsReason
 		case segMatch(last, ".claude"):
 			return "a .claude directory"
@@ -332,8 +331,8 @@ func looksLikePath(a string) bool {
 var listOnly = map[string]bool{"ls": true, "dir": true, "get-childitem": true, "gci": true, "tree": true, "stat": true, "test-path": true, "du": true}
 
 // secretPath: provguard's HMAC key or its session files (which hold secret
-// fingerprints and the taint history). Review finding (LOW): agents could
-// read them, because self-protection only blocked writes.
+// fingerprints and the taint history). Reads are blocked as well as writes,
+// so an agent cannot learn the key or forge session state.
 func secretPath(p, home, cwd string, deep bool) bool {
 	lp := strings.ToLower(p)
 	if strings.Contains(lp, "://") {
@@ -342,17 +341,16 @@ func secretPath(p, home, cwd string, deep bool) bool {
 	// The OS lookup (canonical) costs about 0.4 ms, so it runs for a name
 	// that can be the key or a session file (base "key", or a path naming
 	// sessions or provguard) and, when deep is set, for any name at all.
-	// Review finding (LOW): the name test alone missed a junction or symlink
-	// renamed to something else, which is all it takes to read the session
-	// files. The tools that read one named file ask for the deep check; a
+	// The name test alone misses a junction or symlink with another name
+	// that points into the folder, so the resolved path is checked too. The tools that read one named file ask for the deep check; a
 	// shell command's arguments share a budget, because there can be many.
-	base := path.Base(norm(p))
+	base := path.Base(shell.NormPath(p))
 	cheap := base == "key" || strings.Contains(lp, "session") || strings.Contains(lp, "provguard")
 	if !cheap && !deep {
 		return false
 	}
 	for _, f := range pathForms(p, cwd, nil) {
-		n := path.Clean(norm(f))
+		n := path.Clean(shell.NormPath(f))
 		if strings.Contains(n, ".provguard/key") || strings.Contains(n, ".provguard/sessions") {
 			return true
 		}
@@ -370,7 +368,7 @@ func secretPath(p, home, cwd string, deep bool) bool {
 
 func cdIntoClaude(cds []string) bool {
 	for _, d := range cds {
-		for _, s := range strings.Split(path.Clean(norm(lexical(d))), "/") {
+		for _, s := range strings.Split(path.Clean(shell.NormPath(lexical(d))), "/") {
 			if segMatch(s, ".claude") {
 				return true
 			}
@@ -405,8 +403,8 @@ func checkFileTool(e event.Event, home string) Verdict {
 	cur, _ := os.ReadFile(real) // missing file = empty
 	next, ok := applyEdit(e, string(cur))
 	if !ok {
-		// Review finding: "old_string not found, the Edit will fail" could be
-		// wrong if the agent's Edit matches more loosely than a byte compare.
+		// Do not assume "old_string not found, so the Edit will fail": the
+		// agent's Edit may match more loosely than a byte compare.
 		return deny("self_protect_settings", "blocked an edit of "+p+" that provguard cannot verify")
 	}
 	before, okBefore := protectedKeys(string(cur))
@@ -459,7 +457,7 @@ func replace(cur string, in map[string]any) (string, bool) {
 }
 
 // guardedKeys are settings that switch hooks off, redirect provguard
-// (env → PROVGUARD_HOME) or run commands outside hooks (review finding).
+// (env → PROVGUARD_HOME) or run commands outside hooks.
 var guardedKeys = []string{
 	"hooks", "disableAllHooks", "allowManagedHooksOnly",
 	"env", "statusLine", "apiKeyHelper", "awsAuthRefresh", "awsCredentialExport",
@@ -494,7 +492,7 @@ var pathKeys = []string{"path", "file_path", "filePath", "filepath", "notebook_p
 	"target", "new_path", "newPath", "source", "src", "from", "to", "directory", "dir"}
 
 // checkToolPaths: tools that write files outside Write/Edit, e.g.
-// mcp__filesystem__write_file / move_file (review finding).
+// mcp__filesystem__write_file / move_file.
 func checkToolPaths(e event.Event, home string) Verdict {
 	parts := strings.Split(e.ToolName, "__")
 	if !writingTool.MatchString(parts[len(parts)-1]) {
@@ -534,10 +532,9 @@ func checkToolPaths(e event.Event, home string) Verdict {
 
 // protectedText finds references to protected things inside code that
 // provguard cannot analyze (python -c, eval, iex, script files).
-// Review findings (HIGH): "allow" was missing, so code provguard cannot
-// read could grant itself a blocked call (provguard allow <token>); and a
-// glob hid the names from the pattern, because only a shell command's
-// arguments are glob-matched, not text inside code.
+// "allow" is included so such code cannot grant itself a blocked call
+// (provguard allow <token>). Globs are matched too, because only a shell
+// command's arguments are glob-expanded before the check, not text in code.
 var protectedText = regexp.MustCompile(`(?i)` + strings.Join([]string{
 	`disableAllHooks`,
 	`allowManagedHooksOnly`,
@@ -555,16 +552,15 @@ var protectedText = regexp.MustCompile(`(?i)` + strings.Join([]string{
 	`\.codex[\\/]+(?:config|hooks|requirements)\.`,     // Codex hook settings
 	`\.provguard\b`,
 	`\.pro[a-z0-9]*[*?\[]`, // a glob that can expand to .provguard
-	// A quoted subcommand or setting counts too (review finding:
-	// `provguard config 'mode' audit` in a script was missed).
+	// A quoted subcommand or setting counts too
+	// (`provguard config 'mode' audit` in a script).
 	`provguard(?:\.exe)?['"]?\s+['"]?(?:uninstall|init|reset|allow)\b`,
 	`provguard(?:\.exe)?['"]?\s+['"]?config['"]?\s+['"]?[a-z-]`, // config with a setting changes it
 }, "|"))
 
-// Script scanning limits. Review finding (HIGH): one 1 MiB read of the
-// start of the file meant that padding a script with filler hid the
-// reference, so the whole file is streamed in overlapping windows, up to a
-// budget shared by every file one hook process looks at.
+// Script scanning limits. Reading only the start of a file would let filler
+// hide a reference, so the whole file is streamed in overlapping windows, up
+// to a budget shared by every file one command runs.
 const (
 	scriptWindow  = 1 << 20
 	scriptOverlap = 256
@@ -613,8 +609,8 @@ func checkShell(an *shell.Analysis, raw, home, cwd string) Verdict {
 			return deny("self_protect_shell", "blocked code that provguard cannot analyze and that refers to hook settings or provguard files")
 		}
 	}
-	// Script files run by the command (python x.py, bash x.sh, make, npm run):
-	// review finding — Write a script, then run it, bypassed every check.
+	// Script files run by the command (python x.py, bash x.sh, make, npm run),
+	// so writing a script and then running it does not bypass the checks.
 	budget := int64(scriptBudget) // per command, so a long-lived process keeps scanning
 	for _, c := range an.Cmds {
 		for _, f := range shell.ScriptFiles(c) {
@@ -634,11 +630,11 @@ func checkShell(an *shell.Analysis, raw, home, cwd string) Verdict {
 	return Verdict{}
 }
 
-// checkSelfCommands blocks agents from running provguard's install/reset
-// commands under any name, and from copying the protected binary out.
 // argFeeders run a command with arguments that come from input at run time.
 var argFeeders = map[string]bool{"xargs": true, "parallel": true, "find": true, "fd": true, "rush": true, "foreach-object": true}
 
+// checkSelfCommands blocks agents from running provguard's install/reset
+// commands under any name, and from copying the protected binary out.
 func checkSelfCommands(an *shell.Analysis) Verdict {
 	for _, c := range an.Cmds {
 		if len(c.Args) == 0 {
@@ -661,8 +657,8 @@ func checkSelfCommands(an *shell.Analysis) Verdict {
 			}
 		}
 		// Tools that add arguments at run time (xargs, parallel, find -exec)
-		// can turn a bare `provguard config` into a change. Review finding:
-		// `echo mode audit | xargs provguard config` changed the settings.
+		// can turn a bare `provguard config` into a change
+		// (`echo mode audit | xargs provguard config`).
 		if argFeeders[c.Name] {
 			for _, a := range c.Args[1:] {
 				if strings.Contains(strings.ToLower(a), "provguard") {
@@ -694,12 +690,11 @@ func checkSelfCommands(an *shell.Analysis) Verdict {
 // binaryName matches the name provguard's binary has on disk, in any folder.
 var binaryName = regexp.MustCompile(`(?:^|[/\\])provguard(?:\.exe)?$`)
 
-// copiesBinary reports whether an argument names provguard's binary. Review
-// finding (HIGH): only copies out of ~/.provguard/bin were blocked, so the
-// one `go install` put in ~/go/bin could be copied to another name and run
-// as `pg allow <token>`.
+// copiesBinary reports whether an argument names provguard's binary in any
+// folder, not only ~/.provguard/bin: a copy from ~/go/bin under another name
+// could run as `pg allow <token>`.
 func copiesBinary(a string) bool {
-	n := norm(strings.Trim(a, `'"`))
+	n := shell.NormPath(strings.Trim(a, `'"`))
 	if strings.Contains(n, ".provguard/bin") || binaryName.MatchString(n) {
 		return true
 	}

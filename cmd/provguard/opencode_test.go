@@ -1,8 +1,6 @@
 package main
 
 import (
-	"bytes"
-	"encoding/json"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -13,14 +11,9 @@ import (
 // stderr: the plugin blocks a tool call on a non-zero exit.
 func opencodeCall(t *testing.T, s *session, ev string, fields map[string]any) (int, string) {
 	t.Helper()
-	p := map[string]any{"hook_event_name": ev, "session_id": "opencode-1", "cwd": s.home}
-	for k, v := range fields {
-		p[k] = v
-	}
-	b, _ := json.Marshal(p)
-	var stdout, stderr bytes.Buffer
-	code := runHookIO(bytes.NewReader(b), &stdout, &stderr, ev, "opencode")
-	return code, stderr.String()
+	in := hookInput(map[string]any{"hook_event_name": ev, "session_id": "opencode-1", "cwd": s.home}, fields)
+	code, _, stderr := hookIO(in, ev, "opencode")
+	return code, stderr
 }
 
 func TestOpenCodeScenarios(t *testing.T) {

@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"fmt"
+	"github.com/durgavarapraveen/provguard/internal/redact"
 	"io"
 	"net"
 	"net/http"
@@ -147,7 +148,7 @@ func errNote(e string) string {
 	if e == "" {
 		return ""
 	}
-	return "error=" + oneLine(e, 80) + " "
+	return "error=" + redact.OneLine(e, 80) + " "
 }
 
 func liveOnce(claude, model string, c bench.Case, profile string, run int) liveResult {
@@ -198,7 +199,7 @@ func liveOnce(claude, model string, c bench.Case, profile string, run int) liveR
 	cmd.Env = append(os.Environ(), "PROVGUARD_HOME="+home)
 	outb, err := cmd.CombinedOutput()
 	if err != nil {
-		r.Error = err.Error() + ": " + oneLine(string(outb), 200)
+		r.Error = err.Error() + ": " + redact.OneLine(string(outb), 200)
 	}
 
 	r.Leaked = srv.leaked(v.Canary)

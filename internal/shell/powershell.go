@@ -126,9 +126,9 @@ func psStatement(a *Analysis, toks []psTok, depth int) string {
 		words, callOp = words[1:], true
 	}
 	first := words[0]
-	// "$x = <pipeline>" runs the pipeline. Review finding (CRIT): assignments
-	// were skipped as expressions, so `$null = Set-Content …` and
-	// `$r = iwr … -InFile .env` were never checked.
+	// "$x = <pipeline>" runs the pipeline, so the right side is analyzed:
+	// `$null = Set-Content …` and `$r = iwr … -InFile .env` are not mere
+	// expressions.
 	if !callOp {
 		if rhs, ok := psAssignmentRHS(words); ok {
 			if len(rhs) == 0 {
@@ -139,8 +139,7 @@ func psStatement(a *Analysis, toks []psTok, depth int) string {
 	}
 	// Without & or ., PowerShell never runs a computed name: a statement that
 	// starts with $x, "…", (…), @(…) or [type] is an expression. Their insides
-	// were already analyzed by the tokenizer. (Found live: @(…) and
-	// ([datetime]$x) were read as unknown commands.)
+	// were already analyzed by the tokenizer.
 	if !callOp && (first.dyn || first.quote || strings.HasPrefix(first.s, "$") || strings.HasPrefix(first.s, "[")) {
 		return ""
 	}
@@ -154,9 +153,7 @@ func psStatement(a *Analysis, toks []psTok, depth int) string {
 	}
 	if first.dyn || callOp && strings.HasPrefix(first.s, "$") && !known {
 		a.sink(Opaque, "dynamic_command", first.s)
-		// Args[0] is always the raw name (see Cmd). This was the one site
-		// that left Args empty, and `& $tool status` then crashed callers
-		// that slice Args[1:], which stopped the labeler mid-event.
+		// Args[0] is always the raw name (see Cmd): callers slice Args[1:].
 		a.Cmds = append(a.Cmds, Cmd{Name: first.s, Args: []string{first.s}, Dynamic: true})
 		return ""
 	}
@@ -369,8 +366,8 @@ func psAssignmentRHS(words []psTok) ([]psTok, bool) {
 }
 
 // psLookup finds a parameter by full name or by an unambiguous abbreviation
-// (PowerShell accepts -Pa for -Path, -Dest for -Destination). Review
-// finding: abbreviations hid write targets.
+// (PowerShell accepts -Pa for -Path, -Dest for -Destination), so an
+// abbreviation cannot hide a write target.
 func psLookup(params map[string]psTok, names ...string) (psTok, bool) {
 	for _, n := range names {
 		if v, ok := params[n]; ok {
@@ -547,7 +544,6 @@ func psTokenize(a *Analysis, s string, depth int) []psTok {
 			}
 		case c == '@' && !has && i+1 < len(s) && s[i+1] == '(':
 			// Array subexpression @(...): an expression, not a command.
-			// Found live: it was read as an unknown command (OPAQUE).
 			end := matchParen(s, i+1)
 			psSubexpr(a, s[i+2:end], depth)
 			cur.WriteString("(...)")

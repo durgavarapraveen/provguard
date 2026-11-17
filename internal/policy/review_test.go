@@ -9,9 +9,9 @@ import (
 	"github.com/durgavarapraveen/provguard/internal/shell"
 )
 
-// Regression tests for the 2026-11 security review (HIGH findings).
+// Regression tests for known bypasses of the policy rules.
 
-// Review (MED): no project folder when cwd is home or a root.
+// There is no project folder when cwd is home or a filesystem root.
 func TestReviewDeleteFromHome(t *testing.T) {
 	home, _ := os.UserHomeDir()
 	for _, c := range []struct {

@@ -108,14 +108,7 @@ func Dir() (string, error) {
 }
 
 // Present reports whether OpenCode's config folder exists.
-func Present() bool {
-	d, err := Dir()
-	if err != nil {
-		return false
-	}
-	_, err = os.Stat(d)
-	return err == nil
-}
+func Present() bool { return core.Exists(Dir) }
 
 // PluginFile is the plugin provguard installs.
 func PluginFile() (string, error) {

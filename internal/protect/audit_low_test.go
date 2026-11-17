@@ -25,9 +25,8 @@ func linkTo(t *testing.T, name, target string) {
 	}
 }
 
-// LOW: the key and session files were only protected from reading when the
-// path said "key", "session" or "provguard", so a link under any other name
-// read them.
+// The key and session files stay unreadable through a link under any name,
+// not only one that says "key", "session" or "provguard".
 func TestAuditReadStateThroughLink(t *testing.T) {
 	root := t.TempDir()
 	home := filepath.Join(root, "pghome")

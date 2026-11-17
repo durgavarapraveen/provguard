@@ -43,8 +43,8 @@ func TestConcurrentUpdatesKeepEveryWrite(t *testing.T) {
 	}
 }
 
-// Review (HIGH, Windows): a reader holding the session file open made the
-// writer's rename fail with "Access is denied", losing the update.
+// On Windows, a reader holding the session file open must not make the
+// writer's rename fail with "Access is denied" and lose the update.
 func TestUpdateWhileReaderHoldsFile(t *testing.T) {
 	home := t.TempDir()
 	if err := Update(home, "s", func(s *Session) error { return nil }); err != nil {
@@ -109,7 +109,7 @@ func TestStaleLockIsBroken(t *testing.T) {
 	}
 }
 
-// Review (LOW): breaking a stale lock must not delete a fresh one.
+// Breaking a stale lock must not delete a fresh one.
 func TestBreakStaleKeepsFreshLock(t *testing.T) {
 	dir := t.TempDir()
 	lk := filepath.Join(dir, "s.json.lock")

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"github.com/durgavarapraveen/provguard/internal/redact"
 	"io"
 	"os"
 	"path/filepath"
@@ -78,7 +79,7 @@ func demoCase(w io.Writer, c bench.Case) error {
 	}
 	fmt.Fprintf(w, "\n== %s: %s ==\n", kind, c.Name)
 	if c.Description != "" {
-		fmt.Fprintf(w, "   %s\n", oneLine(c.Description, 110))
+		fmt.Fprintf(w, "   %s\n", redact.OneLine(c.Description, 110))
 	}
 	for i, s := range c.Steps {
 		payload := map[string]any{"session_id": "demo-" + c.ID, "hook_event_name": s.Event, "tool_use_id": fmt.Sprintf("t%02d", i), "cwd": v.Repo}
@@ -99,7 +100,7 @@ func demoCase(w io.Writer, c bench.Case) error {
 			return err
 		}
 		// Show workspace paths as repo/… (the temp path contains the user name).
-		call := oneLine(strings.ReplaceAll(callText(v.ExpandAny(s.Input)), v.Repo, "repo"), 60)
+		call := redact.OneLine(strings.ReplaceAll(callText(v.ExpandAny(s.Input)), v.Repo, "repo"), 60)
 		switch s.Event {
 		case "PostToolUse":
 			result := "trusted"
@@ -123,7 +124,7 @@ func demoCase(w io.Writer, c bench.Case) error {
 			// What the user sees, minus the note addressed to the agent.
 			for _, l := range strings.Split(msg, "\n") {
 				if !strings.HasPrefix(l, "Agent:") {
-					fmt.Fprintf(w, "          %s\n", oneLine(strings.ReplaceAll(l, v.Repo, "repo"), 200))
+					fmt.Fprintf(w, "          %s\n", redact.OneLine(strings.ReplaceAll(l, v.Repo, "repo"), 200))
 				}
 			}
 		}

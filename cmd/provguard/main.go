@@ -3,6 +3,7 @@ package main
 
 import (
 	"fmt"
+	"github.com/durgavarapraveen/provguard/internal/redact"
 	"io"
 	"os"
 	"time"
@@ -114,10 +115,10 @@ func main() {
 // untrusted content and secrets.
 // failClosedReason says why a PreToolUse call whose check crashed must be
 // denied, or returns "" to fail open. Strict denies everything it cannot
-// check. Review finding (LOW): balanced failed open on every error, so a
-// crash in the check was itself a way through; it now denies once the
-// session is 🔴 (untrusted content and secrets both seen), where a missed
-// check is what the lethal-trifecta rule exists to stop. Audit never denies.
+// check. Balanced denies once the session is 🔴 (untrusted content and
+// secrets both seen), so a crash in the check is not a way through where a
+// missed check is what the lethal-trifecta rule exists to stop. Audit never
+// denies.
 func failClosedReason(cfg config.Config, home, session string) string {
 	switch cfg.ProfileName() {
 	case config.Strict:
@@ -188,7 +189,7 @@ func runHookIO(stdin io.Reader, stdout, stderr io.Writer, eventArg, agent string
 				if cfg, err := config.Load(home); err == nil {
 					if why := failClosedReason(cfg, home, rec.SessionID); why != "" {
 						respond(out, &rec, ad, core.Deny, "fail_closed",
-							"provguard (fail_closed): the security check could not run ("+oneLine(rec.Error, 120)+"), "+why+".")
+							"provguard (fail_closed): the security check could not run ("+redact.OneLine(rec.Error, 120)+"), "+why+".")
 					}
 				}
 			}

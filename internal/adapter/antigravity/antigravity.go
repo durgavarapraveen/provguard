@@ -20,7 +20,6 @@ package antigravity
 
 import (
 	"encoding/json"
-	"os"
 	"path/filepath"
 
 	"github.com/durgavarapraveen/provguard/internal/adapter/core"
@@ -173,30 +172,12 @@ func (Adapter) CanAsk() bool { return true }
 
 // Dir is Antigravity's folder, ~/.gemini. PROVGUARD_ANTIGRAVITY_HOME
 // (provguard's own variable, not Antigravity's) points elsewhere, for tests.
-func Dir() (string, error) {
-	if h := os.Getenv("PROVGUARD_ANTIGRAVITY_HOME"); h != "" {
-		return h, nil
-	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(home, ".gemini"), nil
-}
+func Dir() (string, error) { return core.AgentDir("PROVGUARD_ANTIGRAVITY_HOME", ".gemini") }
 
 // Present reports whether Antigravity's app, CLI or IDE has run here
 // (~/.gemini also belongs to Gemini CLI).
 func Present() bool {
-	d, err := Dir()
-	if err != nil {
-		return false
-	}
-	for _, app := range []string{"antigravity", "antigravity-cli", "antigravity-ide"} {
-		if _, err := os.Stat(filepath.Join(d, app)); err == nil {
-			return true
-		}
-	}
-	return false
+	return core.Exists(Dir, "antigravity") || core.Exists(Dir, "antigravity-cli") || core.Exists(Dir, "antigravity-ide")
 }
 
 // HooksFile is Antigravity's global hook file.

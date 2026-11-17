@@ -19,7 +19,7 @@ func TestSyntaxCheckOfProtectedScript(t *testing.T) {
 		"sh install.sh":                   true,
 		"sh -n install.sh; sh install.sh": true,
 		"bash -n +n install.sh":           true,
-		"bash -e install.sh":              true, // was a bypass: -e read as inline code
+		"bash -e install.sh":              true, // -e is an option, not inline code
 		"bash +x install.sh":              true,
 		"sh -n -c 'rm -rf ~/.provguard'":  true, // inline code is not a syntax check of a file
 	} {
@@ -30,7 +30,7 @@ func TestSyntaxCheckOfProtectedScript(t *testing.T) {
 	}
 }
 
-// A program named through folder variables is now a known program, so the
+// A program named through folder variables is a known program, so the
 // self-protection checks by name must catch it.
 func TestKnownProgramPathStillProtected(t *testing.T) {
 	for cmd, tool := range map[string]string{
@@ -42,8 +42,8 @@ func TestKnownProgramPathStillProtected(t *testing.T) {
 	}
 }
 
-// Review findings 8 and 9: settings changed through an argument feeder, or
-// from a script that quotes the setting.
+// Settings changed through an argument feeder, or from a script that quotes
+// the setting, are blocked.
 func TestConfigChangeBypasses(t *testing.T) {
 	dir := t.TempDir()
 	home := filepath.Join(dir, "home", ".provguard")

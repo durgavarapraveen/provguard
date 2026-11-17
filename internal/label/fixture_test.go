@@ -33,8 +33,8 @@ func TestFixtureTokensIgnored(t *testing.T) {
 	}
 }
 
-// Review finding 12: a token in a real fixture is still fingerprinted, and
-// a link inside testdata/ to a file elsewhere is not a fixture.
+// A token in a real fixture is still fingerprinted, and a link inside
+// testdata/ to a file elsewhere is not a fixture.
 func TestFixtureFingerprinted(t *testing.T) {
 	out := map[string]any{"file": map[string]any{"content": fakeGitHub}}
 	r := Post(post("Read", map[string]any{"file_path": "/proj/x_test.go"}, out), Env{})
