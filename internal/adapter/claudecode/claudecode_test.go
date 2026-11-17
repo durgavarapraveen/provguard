@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/durgavarapraveen/provguard/internal/adapter/core"
 	"github.com/durgavarapraveen/provguard/internal/event"
 )
 
@@ -119,7 +120,7 @@ func TestParseBadJSON(t *testing.T) {
 }
 
 func TestPreToolResponseShape(t *testing.T) {
-	b, err := PreToolResponse(Deny, "test")
+	b, err := PreToolResponse(core.Deny, "test")
 	if err != nil {
 		t.Fatal(err)
 	}

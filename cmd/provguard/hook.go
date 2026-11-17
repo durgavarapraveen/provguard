@@ -2,13 +2,13 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"io"
 	"os/exec"
 	"strings"
 	"time"
 
 	"github.com/durgavarapraveen/provguard/internal/adapter/claudecode"
+	"github.com/durgavarapraveen/provguard/internal/adapter/core"
 	"github.com/durgavarapraveen/provguard/internal/allowonce"
 	"github.com/durgavarapraveen/provguard/internal/audit"
 	"github.com/durgavarapraveen/provguard/internal/config"
@@ -24,23 +24,16 @@ import (
 )
 
 // handle runs the per-event logic and fills rec. Errors go to rec.Error;
-// they never block the agent. A non-PreToolUse event whose labels changed
-// prints a one-time notice for the user (Claude Code's "systemMessage").
-func handle(e event.Event, stdout io.Writer, rec *audit.Record) {
+// they never block the agent. ad writes every answer in the agent's own
+// format: decisions on tool calls, and a one-time notice or a new session
+// title when the session's trust state changed.
+func handle(ad core.Adapter, e event.Event, stdout io.Writer, rec *audit.Record) {
 	var newTitle string
 	defer func() {
 		if e.Kind == event.PreTool {
-			return // PreToolUse prints only decisions (respond)
+			return // tool calls get only decisions (respond)
 		}
-		out := map[string]any{}
-		if rec.Notice != "" {
-			out["systemMessage"] = rec.Notice
-		}
-		if newTitle != "" {
-			out["hookSpecificOutput"] = map[string]any{"hookEventName": e.RawEvent, "sessionTitle": newTitle}
-		}
-		if len(out) > 0 {
-			b, _ := json.Marshal(out)
+		if b := ad.Feedback(e, rec.Notice, newTitle); b != nil {
 			stdout.Write(b)
 		}
 	}()
@@ -101,7 +94,7 @@ func handle(e event.Event, stdout io.Writer, rec *audit.Record) {
 		// Self-protection runs in every profile, including audit.
 		if cfg.SelfProtectOn() {
 			if v := protect.Check(e, home, an); v.Deny {
-				respond(stdout, rec, claudecode.Deny, v.Rule, v.Reason)
+				respond(stdout, rec, ad, core.Deny, v.Rule, v.Reason)
 				return
 			}
 		}
@@ -133,6 +126,12 @@ func handle(e event.Event, stdout io.Writer, rec *audit.Record) {
 		if r.Decision == policy.None {
 			return
 		}
+		if r.Decision == policy.Ask && !ad.CanAsk() {
+			// An agent that ignores "ask" would run the call, so it gets a
+			// deny; the message offers provguard allow for the one call the
+			// user wants.
+			r.Decision = policy.Deny
+		}
 		// The user can let this exact call through once (provguard allow).
 		// Only a deny gets a token: an ask is already the user's choice.
 		token := ""
@@ -151,8 +150,8 @@ func handle(e event.Event, stdout io.Writer, rec *audit.Record) {
 				token = tok
 			}
 		}
-		d := map[string]claudecode.Decision{policy.Deny: claudecode.Deny, policy.Ask: claudecode.Ask}[r.Decision]
-		respond(stdout, rec, d, r.Rule, policy.Message(r, r.Decision, token))
+		d := map[string]core.Decision{policy.Deny: core.Deny, policy.Ask: core.Ask}[r.Decision]
+		respond(stdout, rec, ad, d, r.Rule, policy.Message(r, r.Decision, token))
 		rec.Reason = r.Reason // the log keeps the technical reason
 	case event.PostTool, event.UserPrompt:
 		if err := applyLabels(home, cfg, e, rec); err != nil {
@@ -304,9 +303,10 @@ func untrustedRepoAtStart(home string, cfg config.Config, e event.Event, rec *au
 	})
 }
 
-// respond prints a PreToolUse decision and records it.
-func respond(stdout io.Writer, rec *audit.Record, d claudecode.Decision, rule, reason string) {
-	out, err := claudecode.PreToolResponse(d, reason)
+// respond prints a decision on a tool call, in the agent's format, and
+// records it.
+func respond(stdout io.Writer, rec *audit.Record, ad core.Adapter, d core.Decision, rule, reason string) {
+	out, err := ad.Reply(d, reason)
 	if err == nil {
 		_, err = stdout.Write(out)
 	}
