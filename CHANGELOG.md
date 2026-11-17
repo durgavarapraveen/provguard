@@ -16,6 +16,7 @@
 - Block messages are one plain sentence plus the next step (`provguard allow`, `provguard config allow-host`). The audit log keeps the technical reason.
 - `provguard review` groups what was stopped, or would have been, and says what to do next. In watch-only mode, provguard suggests a review once after three days.
 - `provguard help`; the help text is grouped for new users.
+- `provguard uninstall` removes provguard completely, `~/.provguard` included, and gives marked sessions their old title back: a small cleanup hook restores each title on your next message there, then removes itself (at the latest after 30 days). `--now` skips that; `--keep-data` keeps logs and settings.
 
 ### Fewer false alarms (found with `provguard review` on a real log)
 - `gh pr create` and other gh writes to your own repository are not counted as data leaving.

@@ -60,6 +60,14 @@ func handle(e event.Event, stdout io.Writer, rec *audit.Record) {
 		defer func() {
 			if s, err := store.Get(home, e.SessionID); err == nil {
 				newTitle = titleWithIcon(e.Title, s.Tainted, s.Sensitive)
+				// Remember marked titles, so uninstall can restore them.
+				final := e.Title
+				if newTitle != "" {
+					final = newTitle
+				}
+				if strings.TrimSpace(final) != "" {
+					markTitled(home, e.SessionID, stripIcons(final) != final)
+				}
 			}
 		}()
 	}
@@ -224,39 +232,6 @@ func gitOutgoingDiff(cwd string) func() string {
 		out, _ := run("-n", "20")
 		return out
 	}
-}
-
-var titleIcons = []string{"🔴 ", "🟡 ", "🟠 ", "🟢 "}
-
-// titleWithIcon returns the title with the icon for the session's state in
-// front, or "" when no change is needed. A session without a title is left
-// alone, so the app still names it from the first prompt.
-func titleWithIcon(current string, tainted, sensitive bool) string {
-	if strings.TrimSpace(current) == "" {
-		return ""
-	}
-	base := current
-	for again := true; again; {
-		again = false
-		for _, ic := range titleIcons {
-			if strings.HasPrefix(base, ic) {
-				base, again = strings.TrimPrefix(base, ic), true
-			}
-		}
-	}
-	want := base
-	switch {
-	case tainted && sensitive:
-		want = "🔴 " + base
-	case tainted:
-		want = "🟡 " + base
-	case sensitive:
-		want = "🟠 " + base
-	}
-	if want == current {
-		return ""
-	}
-	return want
 }
 
 // transitionNotice describes a session that just became untrusted or
