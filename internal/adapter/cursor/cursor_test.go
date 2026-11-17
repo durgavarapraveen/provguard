@@ -26,7 +26,7 @@ func TestParsePreToolUseShell(t *testing.T) {
 		t.Fatal(err)
 	}
 	if e.Agent != Agent || e.Kind != event.PreTool || e.RawEvent != "PreToolUse" ||
-		e.SessionID != "conv-1" || e.ToolName != ShellTool || e.Cwd != "/project" || e.ToolInput["command"] != "npm install" {
+		e.SessionID != "conv-1" || e.ToolName != event.ShellTool || e.Cwd != "/project" || e.ToolInput["command"] != "npm install" {
 		t.Errorf("event %+v", e)
 	}
 }
