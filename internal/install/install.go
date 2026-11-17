@@ -35,6 +35,66 @@ func Command(exe, eventName string) string {
 	return fmt.Sprintf("\"%s\" hook %s", filepath.ToSlash(exe), eventName)
 }
 
+// CleanupEvent is the hook name of the title cleanup that uninstall leaves
+// behind (`provguard hook cleanup`).
+const CleanupEvent = "cleanup"
+
+// CleanupEvents are the Claude Code events whose hook answer can set a
+// session title.
+var CleanupEvents = []string{"SessionStart", "UserPromptSubmit"}
+
+// AddCleanup adds the title-cleanup hook, running exe, for CleanupEvents.
+func AddCleanup(s map[string]any, exe string) error {
+	hooks, ok := s["hooks"].(map[string]any)
+	if !ok {
+		if _, exists := s["hooks"]; exists {
+			return errors.New(`"hooks" in settings is not an object, refusing to change it`)
+		}
+		hooks = map[string]any{}
+		s["hooks"] = hooks
+	}
+	for _, ev := range CleanupEvents {
+		existing, _ := hooks[ev].([]any)
+		hooks[ev] = append(existing, map[string]any{"hooks": []any{map[string]any{
+			"type": "command", "command": Command(exe, CleanupEvent), "timeout": HookTimeoutSeconds,
+		}}})
+	}
+	return nil
+}
+
+// HookBinary returns the program the installed provguard hooks run, or "".
+func HookBinary(s map[string]any) string {
+	hooks, _ := s["hooks"].(map[string]any)
+	for _, groups := range hooks {
+		gs, _ := groups.([]any)
+		for _, g := range gs {
+			gm, _ := g.(map[string]any)
+			hs, _ := gm["hooks"].([]any)
+			for _, h := range hs {
+				hm, _ := h.(map[string]any)
+				if cmd, _ := hm["command"].(string); IsProvguard(cmd) {
+					return commandProgram(cmd)
+				}
+			}
+		}
+	}
+	return ""
+}
+
+// commandProgram returns the program of a hook command line ("exe" args…).
+func commandProgram(cmd string) string {
+	cmd = strings.TrimSpace(cmd)
+	if rest, ok := strings.CutPrefix(cmd, `"`); ok {
+		if i := strings.IndexByte(rest, '"'); i >= 0 {
+			return filepath.FromSlash(rest[:i])
+		}
+	}
+	if f := strings.Fields(cmd); len(f) > 0 {
+		return filepath.FromSlash(f[0])
+	}
+	return ""
+}
+
 // IsProvguard reports whether a hook command belongs to provguard.
 func IsProvguard(cmd string) bool {
 	c := strings.ToLower(cmd)
