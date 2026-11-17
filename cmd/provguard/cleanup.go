@@ -90,6 +90,9 @@ func finishUninstall(home string, p pending) error {
 	if p.KeepData {
 		return os.Remove(pendingPath(home))
 	}
+	if bin := filepath.Join(home, "bin"); userPath.has(bin) {
+		_ = userPath.remove(bin)
+	}
 	return removeHome(home)
 }
 
