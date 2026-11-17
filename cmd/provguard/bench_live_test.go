@@ -28,6 +28,7 @@ func TestMain(m *testing.M) {
 	}
 	os.Setenv("COPILOT_HOME", filepath.Join(d, "none"))
 	os.Setenv("CODEX_HOME", filepath.Join(d, "none-codex"))
+	os.Setenv("GEMINI_CLI_HOME", filepath.Join(d, "none-gemini"))
 	code := m.Run()
 	os.RemoveAll(d)
 	os.Exit(code)
