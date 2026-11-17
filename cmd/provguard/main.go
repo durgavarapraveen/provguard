@@ -57,9 +57,14 @@ func main() {
 	}
 	switch os.Args[1] {
 	case "hook":
+		// provguard hook [--agent NAME] <event>
+		args, agent := os.Args[2:], ""
+		if len(args) >= 2 && args[0] == "--agent" {
+			agent, args = args[1], args[2:]
+		}
 		ev := ""
-		if len(os.Args) > 2 {
-			ev = os.Args[2]
+		if len(args) > 0 {
+			ev = args[0]
 		}
 		if ev == install.CleanupEvent {
 			home, err := audit.Home()
@@ -68,7 +73,7 @@ func main() {
 			}
 			os.Exit(runCleanupHook(os.Stdin, os.Stdout, home, time.Now()))
 		}
-		os.Exit(runHook(os.Stdin, os.Stdout, ev))
+		os.Exit(runAgentHook(os.Stdin, os.Stdout, ev, agent))
 	case "init":
 		os.Exit(runInstall(os.Args[2:], true))
 	case "uninstall":
@@ -132,7 +137,14 @@ func failClosedReason(cfg config.Config, home, session string) string {
 	return "and this session has read both untrusted content and secrets, so provguard does not let a call it cannot check through"
 }
 
-func runHook(stdin io.Reader, stdout io.Writer, eventArg string) (code int) {
+// runHook runs one hook call, picking the agent from the payload.
+func runHook(stdin io.Reader, stdout io.Writer, eventArg string) int {
+	return runAgentHook(stdin, stdout, eventArg, "")
+}
+
+// runAgentHook runs one hook call. agent names the sender when the hook
+// command says so (--agent); otherwise the payload decides.
+func runAgentHook(stdin io.Reader, stdout io.Writer, eventArg, agent string) (code int) {
 	start := time.Now()
 	ad := adapter.Default()
 	rec := audit.Record{Agent: ad.Name(), Event: eventArg, Decision: "none"}
@@ -163,7 +175,7 @@ func runHook(stdin io.Reader, stdout io.Writer, eventArg string) (code int) {
 		rec.Error = "read stdin: " + err.Error()
 		return 0
 	}
-	ad, raw = adapter.ForPayload(raw)
+	ad, raw = adapter.Select(agent, raw)
 	rec.Agent = ad.Name()
 	e, err := ad.Parse(raw, eventArg)
 	if err != nil {

@@ -6,9 +6,11 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/durgavarapraveen/provguard/internal/adapter/claudecode"
+	"github.com/durgavarapraveen/provguard/internal/adapter/copilot"
 	"github.com/durgavarapraveen/provguard/internal/audit"
 	"github.com/durgavarapraveen/provguard/internal/config"
 	"github.com/durgavarapraveen/provguard/internal/doctor"
@@ -93,6 +95,7 @@ func (r installRun) init() int {
 	before := install.HooksJSON(s)
 	cfg, cfgErr := config.Load(r.home)
 	addPath := false
+	addCopilot := !r.interactive && copilot.Present() // --yes protects every agent it finds
 
 	if r.interactive {
 		if cfgErr != nil {
@@ -103,6 +106,10 @@ func (r installRun) init() int {
 		if r.copyBinary && !userPath.has(r.binDir()) {
 			fmt.Fprintln(r.out)
 			addPath = g.confirm("Add provguard to your PATH, so the provguard command works in any folder?", true)
+		}
+		if copilot.Present() {
+			fmt.Fprintln(r.out)
+			addCopilot = g.confirm("Also protect GitHub Copilot (VS Code, Copilot app, Copilot CLI)?", true)
 		}
 		fmt.Fprintf(r.out, "\nprovguard will add its hooks to %s (a backup is kept).\n", r.settings)
 		if !g.confirm("Install now?", true) {
@@ -141,6 +148,9 @@ func (r installRun) init() int {
 	}
 	_ = os.Remove(pendingPath(r.home)) // installed again: no uninstall in progress
 	pathNote := r.pathNote(addPath)
+	if addCopilot {
+		pathNote = strings.TrimSpace(pathNote + "\n" + r.installCopilot(target))
+	}
 	if r.interactive {
 		r.summary(cfg, pathNote)
 		return 0
@@ -195,6 +205,9 @@ func (r installRun) uninstall() int {
 			// The cleanup was already pending in another settings file.
 			return r.finishNow()
 		}
+		if r.write {
+			uninstallCopilot(r.out)
+		}
 		fmt.Fprintln(r.out, "No provguard hooks found in", r.settings)
 		return 0
 	}
@@ -219,6 +232,7 @@ func (r installRun) uninstall() int {
 	if _, err := install.Save(r.settings, s); err != nil {
 		return r.fail(err)
 	}
+	uninstallCopilot(r.out)
 	fmt.Fprintln(r.out, "provguard is off: nothing is checked or blocked any more.")
 	if cleanup {
 		fmt.Fprintf(r.out, `
@@ -295,4 +309,25 @@ func removeFromPath(w io.Writer, home string) {
 func isTerminal(f *os.File) bool {
 	fi, err := f.Stat()
 	return err == nil && fi.Mode()&os.ModeCharDevice != 0
+}
+
+// installCopilot writes provguard's Copilot hook file and says so.
+func (r installRun) installCopilot(exe string) string {
+	p, err := copilot.Install(exe, install.HookTimeoutSeconds)
+	if err != nil {
+		fmt.Fprintln(r.errOut, "provguard: could not protect GitHub Copilot:", err)
+		return ""
+	}
+	return "✔ GitHub Copilot is protected too (" + p + ")."
+}
+
+// uninstallCopilot removes provguard's Copilot hook file, if any.
+func uninstallCopilot(w io.Writer) {
+	removed, err := copilot.Uninstall()
+	switch {
+	case err != nil:
+		fmt.Fprintln(w, "provguard: could not remove its GitHub Copilot hooks:", err)
+	case removed:
+		fmt.Fprintln(w, "Removed provguard's GitHub Copilot hooks.")
+	}
 }
