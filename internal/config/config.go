@@ -33,9 +33,8 @@ type Config struct {
 	TrustSDKMCPServers *bool `json:"trust_sdk_mcp_servers,omitempty"`
 
 	// AllowedHosts: data sent to these hosts does not count as egress.
-	// Review finding (MED): this used to mean trust in both directions, so
-	// listing a host to allow uploads to it also made everything fetched
-	// from it trusted. Content trust is now its own list.
+	// It does not make content fetched from them trusted: allowing uploads
+	// to a host is a different decision, so content trust is its own list.
 	AllowedHosts []string `json:"allowed_hosts,omitempty"`
 
 	// TrustedContentHosts: content fetched from these hosts does not taint
@@ -73,9 +72,9 @@ const (
 )
 
 // ProfileName returns the active profile. An empty profile means audit (the
-// default). Review finding (MED): a typo such as " balanced" or "balancd"
-// used to fall back silently to audit, which blocks nothing; an unknown
-// value now means balanced, and `provguard doctor` reports it.
+// default). An unknown value such as " balanced" or "balancd" means
+// balanced, not audit, so a typo does not silently turn blocking off;
+// `provguard doctor` reports it.
 func (c Config) ProfileName() string {
 	switch strings.ToLower(strings.TrimSpace(c.Profile)) {
 	case "", Audit:

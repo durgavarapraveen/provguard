@@ -131,14 +131,7 @@ func Dir() (string, error) {
 }
 
 // Present reports whether Gemini CLI's folder exists.
-func Present() bool {
-	d, err := Dir()
-	if err != nil {
-		return false
-	}
-	_, err = os.Stat(d)
-	return err == nil
-}
+func Present() bool { return core.Exists(Dir) }
 
 // SettingsFile is Gemini CLI's user settings file, which holds its hooks.
 func SettingsFile() (string, error) {

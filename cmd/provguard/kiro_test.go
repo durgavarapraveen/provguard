@@ -1,8 +1,6 @@
 package main
 
 import (
-	"bytes"
-	"encoding/json"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -13,17 +11,12 @@ import (
 // stderr: Kiro blocks a tool call only on a non-zero exit.
 func kiroCall(t *testing.T, s *session, ev string, fields map[string]any) (int, string) {
 	t.Helper()
-	p := map[string]any{"hook_event_name": ev, "session_id": "kiro-1", "cwd": s.home}
-	for k, v := range fields {
-		p[k] = v
+	in := hookInput(map[string]any{"hook_event_name": ev, "session_id": "kiro-1", "cwd": s.home}, fields)
+	code, stdout, stderr := hookIO(in, ev, "kiro")
+	if stdout != "" {
+		t.Errorf("Kiro adds stdout to the agent's context; got %q", stdout)
 	}
-	b, _ := json.Marshal(p)
-	var stdout, stderr bytes.Buffer
-	code := runHookIO(bytes.NewReader(b), &stdout, &stderr, ev, "kiro")
-	if stdout.Len() != 0 {
-		t.Errorf("Kiro adds stdout to the agent's context; got %q", stdout.String())
-	}
-	return code, stderr.String()
+	return code, stderr
 }
 
 func TestKiroScenarios(t *testing.T) {

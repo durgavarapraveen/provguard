@@ -1,8 +1,6 @@
 package main
 
 import (
-	"bytes"
-	"encoding/json"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -12,14 +10,9 @@ import (
 // (`provguard hook --agent factory-droid <event>`) and returns stdout.
 func droidCall(t *testing.T, s *session, ev string, fields map[string]any) string {
 	t.Helper()
-	p := map[string]any{"hook_event_name": ev, "session_id": "droid-1", "cwd": s.home}
-	for k, v := range fields {
-		p[k] = v
-	}
-	b, _ := json.Marshal(p)
-	var stdout, stderr bytes.Buffer
-	runHookIO(bytes.NewReader(b), &stdout, &stderr, ev, "factory-droid")
-	return stdout.String()
+	in := hookInput(map[string]any{"hook_event_name": ev, "session_id": "droid-1", "cwd": s.home}, fields)
+	_, stdout, _ := hookIO(in, ev, "factory-droid")
+	return stdout
 }
 
 func TestDroidScenarios(t *testing.T) {

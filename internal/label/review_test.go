@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-// Regression tests for the 2026-11 security review (labeling and git trust).
+// Regression tests for labeling and git trust bypasses.
 
 func TestReviewURLOwnerHost(t *testing.T) {
 	for u, want := range map[string]string{

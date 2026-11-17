@@ -7,8 +7,8 @@ import (
 	"time"
 )
 
-// LOW: GC removed every stale entry by age, lock files included, so a hook
-// still holding the lock of a long-idle session lost it mid-update.
+// GC must not remove the lock of a long-idle session while a hook still
+// holds it mid-update.
 func TestGCKeepsLiveLocks(t *testing.T) {
 	home := t.TempDir()
 	_ = Update(home, "old", func(*Session) error { return nil })

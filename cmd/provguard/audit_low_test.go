@@ -9,9 +9,8 @@ import (
 	"github.com/durgavarapraveen/provguard/internal/store"
 )
 
-// LOW: balanced failed open on every internal error, so a crash in the
-// check was itself a way through. It now denies once the session holds both
-// untrusted content and secrets.
+// A crash in the check must not be a way through: balanced denies once the
+// session holds both untrusted content and secrets.
 func TestFailClosedReason(t *testing.T) {
 	home := t.TempDir()
 	mark := func(id string, tainted, sensitive bool) {

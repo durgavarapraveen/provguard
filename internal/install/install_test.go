@@ -128,7 +128,7 @@ func TestCopyBinaryIntoHome(t *testing.T) {
 	}
 }
 
-// Review (LOW): backups piled up, one per init.
+// Only the newest backups are kept, not one per init.
 func TestPruneBackups(t *testing.T) {
 	dir := t.TempDir()
 	p := filepath.Join(dir, "settings.json")

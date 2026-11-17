@@ -171,7 +171,7 @@ func TestTerminalToolSelfProtection(t *testing.T) {
 	}
 }
 
-// Review (MED): a broken config.json used to mean "audit" (no blocking).
+// A broken config.json must not mean "audit" (no blocking).
 func TestBrokenConfigFailsSafe(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("PROVGUARD_HOME", home)

@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -24,6 +25,22 @@ func newSession(t *testing.T, cfg string) *session {
 	t.Setenv("PROVGUARD_HOME", home)
 	os.WriteFile(filepath.Join(home, "config.json"), []byte(cfg), 0o600)
 	return &session{t: t, home: home}
+}
+
+// hookInput merges fields over base and encodes the result as a hook payload.
+func hookInput(base, fields map[string]any) io.Reader {
+	for k, v := range fields {
+		base[k] = v
+	}
+	b, _ := json.Marshal(base)
+	return bytes.NewReader(b)
+}
+
+// hookIO runs the hook for agent and returns its exit code, stdout and stderr.
+func hookIO(in io.Reader, ev, agent string) (int, string, string) {
+	var stdout, stderr bytes.Buffer
+	code := runHookIO(in, &stdout, &stderr, ev, agent)
+	return code, stdout.String(), stderr.String()
 }
 
 // run returns the printed decision and reason ("" when none).

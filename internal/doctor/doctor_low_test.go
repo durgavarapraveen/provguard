@@ -8,9 +8,9 @@ import (
 	"testing"
 )
 
-// LOW: `provguard init` writes "onFailure": "block" only for strict, so a
-// profile changed afterwards left the hook's behaviour behind, and nothing
-// said that a timed-out hook does not block.
+// `provguard init` writes "onFailure": "block" only for strict, so doctor
+// must report a profile changed afterwards, where a timed-out hook does not
+// block.
 func TestFailClosedFindings(t *testing.T) {
 	hooksWith := func(onFailure bool) map[string]any {
 		h := map[string]any{"type": "command", "command": `"C:/u/.provguard/bin/provguard.exe" hook PreToolUse`}

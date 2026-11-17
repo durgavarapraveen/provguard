@@ -1,7 +1,7 @@
 // Package policy decides allow / ask / deny for a tool call, from the
-// session's labels (week 2) and the call's sinks (week 3).
+// session's labels and the call's sinks.
 //
-// Rules, first match wins (DESIGN.md 5.4, tuned in week 6):
+// Rules, first match wins (DESIGN.md 5.4):
 //  1. a secret seen in this session appears in the call      → deny
 //  2. EGRESS while the session is both tainted and sensitive  → deny  (lethal trifecta)
 //  3. EGRESS to a host/URL taken from untrusted content       → ask
@@ -9,7 +9,7 @@
 //  5. reverse shell, or risky DESTROY                         → ask
 //  6. anything else                                           → allow (no decision)
 //
-// Not counted as EGRESS for rules 2–3 (week 6, false-positive tuning):
+// Not counted as EGRESS for rules 2–3, to avoid false positives:
 // pushes to a git remote owned by a trusted owner, and requests to localhost.
 package policy
 
@@ -18,8 +18,8 @@ import (
 	"net"
 	"net/url"
 	"os"
-	"regexp"
 	"path"
+	"regexp"
 	"strings"
 
 	"github.com/durgavarapraveen/provguard/internal/config"
@@ -120,9 +120,9 @@ func evaluate(in Input) Result {
 		}
 	}
 
-	// 1b. A secret inside the commits being pushed. Review finding: pushes to
-	// a trusted remote skip rule 2, so an agent could commit .env and push it
-	// to a public repository.
+	// 1b. A secret inside the commits being pushed. Pushes to a trusted
+	// remote skip rule 2, so without this check an agent could commit .env
+	// and push it to a public repository.
 	if len(s.Fingerprints) > 0 && in.Key != nil && in.OutgoingDiff != nil && hasGitPush(in.Sinks) {
 		if kind := SecretIn(in.OutgoingDiff(), s.Fingerprints, in.Key); kind != "" {
 			return result(Deny, "secret_in_push", fmt.Sprintf(
@@ -182,9 +182,9 @@ func evaluate(in Input) Result {
 	}
 	var destroy []shell.Sink
 	for _, d := range filter(in.Sinks, shell.Destroy) {
-		// The temp-folder exemption holds only in a clean session. Review
-		// finding: a link inside %TEMP% can point anywhere, and untrusted
-		// content can make the agent create one first.
+		// The temp-folder exemption holds only in a clean session: a link
+		// inside %TEMP% can point anywhere, and untrusted content can make
+		// the agent create one first.
 		if s.Tainted || riskyDestroy(d, in.Cwd) && !tempOnly(d, in.Text) {
 			destroy = append(destroy, d)
 		}
@@ -248,9 +248,8 @@ func targetHost(target string) string {
 	}
 	// The authority comes first: in "evil.com/u@allowed.test" the host is
 	// evil.com, and only the part before the first "/" can hold userinfo.
-	// Review finding (HIGH): taking the text after the last "@" read the
-	// path as the host, so any path ending in an allowed host turned every
-	// egress rule off.
+	// Taking the text after the last "@" would read the path as the host,
+	// so a path ending in an allowed host would turn every egress rule off.
 	t = strings.SplitN(t, "/", 2)[0]
 	if i := strings.LastIndex(t, "@"); i >= 0 {
 		t = t[i+1:] // user@host:path (scp, ssh)
@@ -307,9 +306,9 @@ func gitRemote(target string) string {
 	return f[0]
 }
 
-// isLocal reports whether a sink target points to this machine. Review
-// finding: a prefix test on "127." accepted attacker hosts such as
-// "127.attacker.example"; the host must parse as a loopback IP.
+// isLocal reports whether a sink target points to this machine. The host
+// must parse as a loopback IP: a prefix test on "127." would accept
+// attacker hosts such as "127.attacker.example".
 func isLocal(target string) bool {
 	t := strings.ToLower(strings.TrimSpace(target))
 	if t == "" {
@@ -371,9 +370,9 @@ func riskyDestroy(d shell.Sink, cwd string) bool {
 }
 
 // insideWorkspace: a relative path without ".." or variables, or an absolute
-// path under cwd. Review finding (MED): when cwd is the home folder or a
-// filesystem root there is no project, so nothing counts as inside it
-// ("rm -rf Documents" from ~ never asked).
+// path under cwd. When cwd is the home folder or a filesystem root there is
+// no project, so nothing counts as inside it ("rm -rf Documents" from ~
+// must ask).
 func insideWorkspace(p, cwd string) bool {
 	if !isProjectDir(cwd) {
 		return false
@@ -422,8 +421,8 @@ func tempOnly(d shell.Sink, text string) bool {
 var tempVars = []string{"$env:temp/", "$env:tmp/"}
 
 // tempRedefined finds a command that sets the temp variable itself.
-// Review finding: ${env:TEMP} = … and Set-Item Env:TEMP … were missed, so
-// any mention of env:TEMP other than "$env:TEMP" read as a value counts.
+// Any mention of env:TEMP other than "$env:TEMP" read as a value counts, so
+// forms such as ${env:TEMP} = … and Set-Item Env:TEMP … are caught too.
 var tempRedefined = regexp.MustCompile(`(?i)\$env:te?mp\s*=|[^$]env:\\?te?mp\b|\$\{env:te?mp\}|setenvironmentvariable`)
 
 // inTemp: p is strictly inside tempDir, written as a literal path (also the

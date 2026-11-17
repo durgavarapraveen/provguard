@@ -10,8 +10,8 @@ import (
 	"github.com/durgavarapraveen/provguard/internal/event"
 )
 
-// Regression tests for the 2026-11 security review (CRIT findings). Each case
-// was a working bypass of self-protection before the fix.
+// Regression tests for self-protection bypasses: each case is a way to
+// reach a protected file that the checks must catch.
 
 func preIn(tool, cwd string, in map[string]any) event.Event {
 	return event.Event{Kind: event.PreTool, ToolName: tool, ToolInput: in, Cwd: cwd}
@@ -149,7 +149,7 @@ func TestReviewOtherTools(t *testing.T) {
 	}
 }
 
-// Review (LOW): provguard's key and session files are secret.
+// provguard's key and session files cannot be read.
 func TestReviewSecretReads(t *testing.T) {
 	home := filepath.Join(t.TempDir(), "pghome")
 	os.MkdirAll(filepath.Join(home, "sessions"), 0o700)

@@ -48,7 +48,7 @@ func TestTempDeleteIsNotRisky(t *testing.T) {
 	}
 }
 
-// Review findings 6 and 7: a link in %TEMP% can point to the home folder,
+// A link in %TEMP% can point to the home folder,
 // and TEMP can be set other ways. In an untrusted session every recursive
 // delete asks; in a clean one, TEMP set in any way loses the exemption.
 func TestTempExemptionLimits(t *testing.T) {

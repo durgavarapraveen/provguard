@@ -12,13 +12,9 @@ import (
 // (`provguard hook --agent copilot <event>`) and returns the decision.
 func copilotCall(t *testing.T, s *session, ev string, fields map[string]any) (string, string) {
 	t.Helper()
-	p := map[string]any{"hook_event_name": ev, "session_id": "cop-1", "timestamp": "2026-11-17T10:00:00Z", "cwd": s.home}
-	for k, v := range fields {
-		p[k] = v
-	}
-	b, _ := json.Marshal(p)
+	in := hookInput(map[string]any{"hook_event_name": ev, "session_id": "cop-1", "timestamp": "2026-11-17T10:00:00Z", "cwd": s.home}, fields)
 	var out bytes.Buffer
-	runAgentHook(bytes.NewReader(b), &out, ev, "copilot")
+	runAgentHook(in, &out, ev, "copilot")
 	if out.Len() == 0 {
 		return "", ""
 	}

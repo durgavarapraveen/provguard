@@ -195,8 +195,8 @@ func save(home string, s *Session) error {
 		return err
 	}
 	// Windows refuses to rename over a file that another hook process is
-	// reading (unlocked Get). Retry briefly instead of losing the update
-	// (review finding, verified: "Access is denied").
+	// reading (unlocked Get) with "Access is denied". Retry briefly instead
+	// of losing the update.
 	for i := 0; i < 50; i++ {
 		if err = os.Rename(tmp, p); err == nil || !errors.Is(err, os.ErrPermission) {
 			break
@@ -240,10 +240,10 @@ func lock(name string) (func(), error) {
 	}
 }
 
-// breakStale removes a lock left by a crashed hook. Review finding (LOW): two
-// waiters could both see it stale; the second one's os.Remove then deleted the
-// first one's fresh lock. Renaming is atomic, so only one waiter moves the
-// file; if what it moved turns out to be fresh, it puts it back.
+// breakStale removes a lock left by a crashed hook. Two waiters can both see
+// it stale, and a plain os.Remove by the second would delete the first one's
+// fresh lock. Renaming is atomic, so only one waiter moves the file; if what
+// it moved turns out to be fresh, it puts it back.
 func breakStale(name string) {
 	tmp := fmt.Sprintf("%s.stale-%d-%d", name, os.Getpid(), time.Now().UnixNano())
 	if os.Rename(name, tmp) != nil {
@@ -279,9 +279,8 @@ func GC(home string) int {
 			}
 		case strings.HasSuffix(name, ".lock"), strings.HasSuffix(name, ".tmp"),
 			strings.Contains(name, ".lock.stale-"):
-			// Review finding (LOW): every stale entry was removed by age,
-			// lock files included, so a session untouched for MaxAge whose
-			// hook was holding the lock lost it mid-update. A lock is only
+			// A session untouched for MaxAge can still have a hook holding
+			// its lock, so lock files get a longer age: a lock is only
 			// leftover once it is far past the age at which lock() breaks it.
 			if age < abandoned {
 				continue

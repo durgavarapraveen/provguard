@@ -5,6 +5,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"github.com/durgavarapraveen/provguard/internal/redact"
 	"io"
 	"os"
 	"path/filepath"
@@ -91,7 +92,7 @@ func runExplain(args []string, w io.Writer) int {
 			fmt.Fprintf(w, "      sinks: %s\n", strings.Join(r.Sinks, ", "))
 		}
 		if cmd, ok := r.ToolInput["command"].(string); ok {
-			fmt.Fprintf(w, "      cmd:   %s\n", oneLine(cmd, 120))
+			fmt.Fprintf(w, "      cmd:   %s\n", redact.OneLine(cmd, 120))
 		}
 	}
 	return 0
@@ -192,22 +193,4 @@ func yesNo(b bool) string {
 		return "YES"
 	}
 	return "no"
-}
-
-//
-// Logged commands are written by the agent, so control characters are
-// replaced: an escape sequence could otherwise change the user's terminal
-// (review finding). It cuts at a character boundary, not inside one.
-func oneLine(s string, max int) string {
-	s = strings.Map(func(r rune) rune {
-		if r < 0x20 || r >= 0x7f && r <= 0x9f {
-			return ' '
-		}
-		return r
-	}, s)
-	s = strings.Join(strings.Fields(s), " ")
-	if r := []rune(s); len(r) > max {
-		return string(r[:max]) + "…"
-	}
-	return s
 }

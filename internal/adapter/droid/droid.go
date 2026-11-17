@@ -13,7 +13,6 @@
 package droid
 
 import (
-	"os"
 	"path/filepath"
 
 	"github.com/durgavarapraveen/provguard/internal/adapter/claudecode"
@@ -81,26 +80,10 @@ func (Adapter) CanAsk() bool { return false }
 
 // Dir is Droid's home folder, ~/.factory. PROVGUARD_FACTORY_HOME
 // (provguard's own variable, not Droid's) points elsewhere, for tests.
-func Dir() (string, error) {
-	if h := os.Getenv("PROVGUARD_FACTORY_HOME"); h != "" {
-		return h, nil
-	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(home, ".factory"), nil
-}
+func Dir() (string, error) { return core.AgentDir("PROVGUARD_FACTORY_HOME", ".factory") }
 
 // Present reports whether Droid's folder exists.
-func Present() bool {
-	d, err := Dir()
-	if err != nil {
-		return false
-	}
-	_, err = os.Stat(d)
-	return err == nil
-}
+func Present() bool { return core.Exists(Dir) }
 
 // HooksFile is Droid's user hook file.
 func HooksFile() (string, error) {
