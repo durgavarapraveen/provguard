@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.4.0 — check, live hook test, destructive commands
 
 ### Added
 - `provguard check "<command>"`: shows what provguard would do with a shell command, and why, without running it or writing anything. `--untrusted` and `--secrets` judge it as in a session that read untrusted content or secrets; `--session` uses a real session's state. Exit code 0 when allowed, 1 when it would ask or block.
