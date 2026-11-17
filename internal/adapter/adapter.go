@@ -11,6 +11,7 @@ import (
 	"bytes"
 
 	"github.com/durgavarapraveen/provguard/internal/adapter/claudecode"
+	"github.com/durgavarapraveen/provguard/internal/adapter/codex"
 	"github.com/durgavarapraveen/provguard/internal/adapter/copilot"
 	"github.com/durgavarapraveen/provguard/internal/adapter/core"
 	"github.com/durgavarapraveen/provguard/internal/adapter/cursor"
@@ -21,6 +22,7 @@ import (
 var adapters = []core.Adapter{
 	cursor.Adapter{},
 	copilot.Adapter{}, // never detected; named by its hooks (--agent copilot)
+	codex.Adapter{},   // never detected; named by its hooks (--agent codex)
 	claudecode.Adapter{},
 }
 

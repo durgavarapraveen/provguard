@@ -104,6 +104,21 @@ func settingsSegs(segs []string) bool {
 		segMatch(dir, "copilot") && n >= 3 && segMatch(segs[n-3], ".github")
 }
 
+// codexConfig: a file in a .codex folder that can register hooks or turn
+// them off ([features] hooks = false in config.toml), user or project level.
+func codexConfig(segs []string) bool {
+	n := len(segs)
+	if n < 2 || !segMatch(segs[n-2], ".codex") {
+		return false
+	}
+	for _, name := range []string{"config.toml", "hooks.json", "requirements.toml"} {
+		if segMatch(segs[n-1], name) {
+			return true
+		}
+	}
+	return false
+}
+
 // copilotHooksDir: a .copilot/hooks folder or a file in it. Every file there
 // is a Copilot hook configuration, provguard's included, so agents may not
 // change or remove any of them.
@@ -196,6 +211,8 @@ func protectedPath(p, op, home, cwd string, cds []string) string {
 			return "a .claude directory"
 		case copilotHooksDir(segs) || segMatch(last, ".copilot"):
 			return "Copilot's hook configuration"
+		case codexConfig(segs) || segMatch(last, ".codex"):
+			return "Codex's hook configuration"
 		}
 		for _, s := range segs {
 			if segMatch(s, ".provguard") {
@@ -455,6 +472,7 @@ var protectedText = regexp.MustCompile(`(?i)` + strings.Join([]string{
 	`\.claude[\\/]+set[a-z0-9._]*[*?\[]`,  // a glob that can expand to a settings file
 	`\.copilot[\\/]+(?:hooks|settings)`,   // Copilot hook files and settings
 	`\.github[\\/]+copilot[\\/]+settings`, // Copilot repository settings
+	`\.codex[\\/]+(?:config|hooks|requirements)\.`, // Codex hook settings
 	`\.provguard\b`,
 	`\.pro[a-z0-9]*[*?\[]`, // a glob that can expand to .provguard
 	// A quoted subcommand or setting counts too (review finding:
