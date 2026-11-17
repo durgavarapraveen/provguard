@@ -59,6 +59,8 @@ type Session struct {
 	UntrustedValues []string `json:"untrusted_values,omitempty"`
 	// Fingerprints: HMACs of secret values seen in this session.
 	Fingerprints []string `json:"fingerprints,omitempty"`
+	// HiddenSources: content that hid text from the user (label.HiddenText).
+	HiddenSources []Source `json:"hidden_sources,omitempty"`
 	// TaintedAgents: subagent ids that read untrusted content.
 	TaintedAgents []string `json:"tainted_agents,omitempty"`
 	// RepoOwners caches git repo root -> origin owner ("" = no remote).
@@ -76,6 +78,12 @@ func (s *Session) MarkTainted(src Source) {
 func (s *Session) MarkSensitive(src Source) {
 	s.Sensitive = true
 	s.SensitiveSources = appendCapped(s.SensitiveSources, src, MaxSources)
+}
+
+// MarkHidden records content that hid text from the user. It also taints.
+func (s *Session) MarkHidden(src Source) {
+	s.MarkTainted(src)
+	s.HiddenSources = appendCapped(s.HiddenSources, src, MaxSources)
 }
 
 func (s *Session) AddValues(vs ...string) {

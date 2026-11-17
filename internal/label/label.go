@@ -31,6 +31,7 @@ type Result struct {
 	SensitiveReason string
 	Secrets         []redact.Match // raw values: fingerprint them, never store them
 	Values          []string       // URLs, hosts, IPs from untrusted content
+	Hidden          string         // kind of hidden text in the output (HiddenText)
 }
 
 // Labels returns short tags for logs.
@@ -41,6 +42,9 @@ func (r Result) Labels() []string {
 	}
 	if r.Sensitive {
 		l = append(l, "sensitive:"+r.SensitiveReason)
+	}
+	if r.Hidden != "" {
+		l = append(l, "hidden:"+r.Hidden)
 	}
 	return l
 }
@@ -143,7 +147,7 @@ func Post(e event.Event, env Env) Result {
 			}
 			// Grep prints matching lines of the files it searches, so grepping
 			// .env exposes its values like Read does.
-			if SensitivePath(p) {
+			if SensitivePath(p) || env.Config.SensitivePathMatch(p) {
 				r.sensitive("file:" + path.Base(shell.NormPath(p)))
 			}
 		}
@@ -165,6 +169,12 @@ func Post(e event.Event, env Env) Result {
 	r.Secrets = redact.Find(text, r.Sensitive)
 	if !r.Sensitive && len(r.Secrets) > 0 && !testFixture(e) {
 		r.sensitive("secret_in_output:" + r.Secrets[0].Kind)
+	}
+	// Text hidden from the reader makes any content untrusted, even a file
+	// in a trusted repository: rules files with invisible instructions are
+	// a known attack.
+	if r.Hidden = HiddenText(text); r.Hidden != "" {
+		r.untrusted("hidden_text:" + r.Hidden)
 	}
 	if r.Untrusted {
 		r.Values = Values(text)

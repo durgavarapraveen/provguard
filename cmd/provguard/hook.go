@@ -47,6 +47,12 @@ func handle(ad core.Adapter, e event.Event, out *hookOutput, rec *audit.Record) 
 		rec.Error = err.Error() + " (using the balanced profile until it is fixed)"
 		cfg = config.FailSafe()
 	}
+	// A repository's own policy can only add checks (config.RepoPolicy).
+	if c, err := cfg.WithRepoPolicy(e.Cwd); err != nil {
+		rec.Error = err.Error()
+	} else {
+		cfg = c
+	}
 	// SessionStart and UserPromptSubmit may retitle the session: put the trust
 	// icon in front, so untrusted sessions stand out in the session list.
 	if (e.Kind == event.SessionBeg || e.Kind == event.UserPrompt) && cfg.TitleIconOn() {
@@ -79,7 +85,7 @@ func handle(ad core.Adapter, e event.Event, out *hookOutput, rec *audit.Record) 
 				return
 			}
 		}
-		if len(sinks) == 0 {
+		if len(sinks) == 0 && len(cfg.Rules) == 0 && len(cfg.Packs) == 0 {
 			return
 		}
 		snap, err := store.Get(home, e.SessionID)
@@ -92,7 +98,7 @@ func handle(ad core.Adapter, e event.Event, out *hookOutput, rec *audit.Record) 
 			key, _ = fingerprint.LoadOrCreate(home)
 		}
 		in := policy.Input{
-			Tool: e.ToolName, Sinks: sinks, Text: text, Session: snap, Key: key, Config: cfg,
+			Tool: e.ToolName, Sinks: sinks, Cmds: cmdsOf(an), Text: text, Session: snap, Key: key, Config: cfg,
 			Cwd: e.Cwd, RemoteTrusted: remoteTrusted(cfg, e.Cwd),
 			GHRepoTrusted: ghRepoTrusted(cfg, e.Cwd, ghRepoView),
 		}
@@ -159,6 +165,14 @@ func handle(ad core.Adapter, e event.Event, out *hookOutput, rec *audit.Record) 
 			}
 		}
 	}
+}
+
+// cmdsOf returns the analyzed shell commands, or nil for other tools.
+func cmdsOf(an *shell.Analysis) []shell.Cmd {
+	if an == nil {
+		return nil
+	}
+	return an.Cmds
 }
 
 // callSinks reads a tool call: the shell analysis (for shell commands), the
@@ -238,12 +252,17 @@ func gitOutgoingDiff(cwd string) func() string {
 
 // transitionNotice describes a session that just became untrusted or
 // sensitive, or returns "" when nothing new happened.
-func transitionNotice(wasT, wasS bool, s *store.Session) string {
+func transitionNotice(wasT, wasS, wasH bool, s *store.Session) string {
 	reason := func(src []store.Source) string {
 		if len(src) == 0 {
 			return "unknown"
 		}
 		return src[len(src)-1].Tool + ": " + src[len(src)-1].Reason
+	}
+	if len(s.HiddenSources) > 0 && !wasH {
+		src := s.HiddenSources[len(s.HiddenSources)-1]
+		return "provguard: 🟡 content from " + src.Tool + " hides text from you (" + label.HiddenKindText(src.Reason) +
+			"), a common way to slip instructions to an agent. This session is UNTRUSTED, and risky actions are now blocked, not only asked."
 	}
 	switch {
 	case s.Tainted && s.Sensitive && (!wasT || !wasS):
@@ -296,8 +315,8 @@ func untrustedRepoAtStart(home string, cfg config.Config, e event.Event, rec *au
 	reason := "repo_owner_at_start:" + owner
 	rec.Labels = []string{"untrusted:" + reason}
 	return store.Update(home, e.SessionID, func(s *store.Session) error {
-		wasT, wasS := s.Tainted, s.Sensitive
-		defer func() { rec.Notice = transitionNotice(wasT, wasS, s) }()
+		wasT, wasS, wasH := s.Tainted, s.Sensitive, len(s.HiddenSources) > 0
+		defer func() { rec.Notice = transitionNotice(wasT, wasS, wasH, s) }()
 		now := time.Now().UTC()
 		s.MarkTainted(store.Source{At: now, Tool: "SessionStart", Reason: reason})
 		s.AddStep(store.Step{At: now, Event: e.RawEvent, Labels: rec.Labels})
@@ -357,8 +376,8 @@ func applyLabels(home string, cfg config.Config, e event.Event, rec *audit.Recor
 		key, keyErr = fingerprint.LoadOrCreate(home)
 	}
 	return store.Update(home, e.SessionID, func(s *store.Session) error {
-		wasT, wasS := s.Tainted, s.Sensitive
-		defer func() { rec.Notice = transitionNotice(wasT, wasS, s) }()
+		wasT, wasS, wasH := s.Tainted, s.Sensitive, len(s.HiddenSources) > 0
+		defer func() { rec.Notice = transitionNotice(wasT, wasS, wasH, s) }()
 		for k, v := range snap.RepoOwners {
 			if s.RepoOwners == nil {
 				s.RepoOwners = map[string]string{}
@@ -366,6 +385,9 @@ func applyLabels(home string, cfg config.Config, e event.Event, rec *audit.Recor
 			s.RepoOwners[k] = v
 		}
 		now := time.Now().UTC()
+		if res.Hidden != "" {
+			s.MarkHidden(store.Source{At: now, Tool: e.ToolName, Reason: res.UntrustedReason})
+		}
 		if res.Untrusted {
 			s.MarkTainted(store.Source{At: now, Tool: e.ToolName, Reason: res.UntrustedReason})
 			s.AddValues(res.Values...)

@@ -1,13 +1,17 @@
 // Package policy decides allow / ask / deny for a tool call, from the
 // session's labels and the call's sinks.
 //
-// Rules, first match wins (DESIGN.md 5.4):
+// Rules, first match wins:
 //  1. a secret seen in this session appears in the call      → deny
 //  2. EGRESS while the session is both tainted and sensitive  → deny  (lethal trifecta)
 //  3. EGRESS to a host/URL taken from untrusted content       → ask
 //  4. PERSIST / EXEC_REMOTE / OPAQUE while tainted            → ask
 //  5. reverse shell, or risky DESTROY                         → ask
 //  6. anything else                                           → allow (no decision)
+//
+// Also: egress to a blocked host is denied (after rule 1); the user's,
+// a repository's and the packs' rules apply after rule 2; and in a session
+// whose content hid text from the user, rules 3 and 4 deny instead of ask.
 //
 // Not counted as EGRESS for rules 2–3, to avoid false positives:
 // pushes to a git remote owned by a trusted owner, and requests to localhost.
@@ -39,6 +43,7 @@ const (
 type Input struct {
 	Tool    string
 	Sinks   []shell.Sink
+	Cmds    []shell.Cmd    // the commands of a shell call, for command rules
 	Text    string         // raw call text (command, URL, file content) for secret matching
 	Session *store.Session // may be nil (new session)
 	Key     fingerprint.Key
@@ -69,6 +74,7 @@ type Result struct {
 
 	sinks []shell.Sink
 	dest  string // untrusted_destination: the address from untrusted content
+	say   string // the summary, when the rule writes its own
 }
 
 // Evaluate applies the rules and the active profile.
@@ -80,8 +86,20 @@ func Evaluate(in Input) Result {
 			s = &store.Session{}
 		}
 		r.Summary = summary(r.Rule, s, r.sinks, r.dest)
+		if r.say != "" {
+			r.Summary = r.say
+		}
 		if r.Rule == "secret_in_sink" || r.Rule == "lethal_trifecta" {
 			r.Hosts = safeHosts(r.sinks, s.UntrustedValues)
+		}
+		// Content that hid text from the user is a deliberate attack, not
+		// only an unknown source: what untrusted content would make provguard
+		// ask about is blocked instead.
+		if n := len(s.HiddenSources); n > 0 && r.Would == Ask && (r.Rule == "untrusted_destination" || strings.HasPrefix(r.Rule, "tainted_")) {
+			kind := strings.TrimPrefix(s.HiddenSources[n-1].Reason, "hidden_text:")
+			r.Would = Deny
+			r.Rule += "+hidden_text"
+			r.Summary += ", and that content hid text from you (" + strings.ReplaceAll(kind, "_", " ") + ")"
 		}
 	}
 	switch in.Config.ProfileName() {
@@ -103,7 +121,19 @@ func Evaluate(in Input) Result {
 }
 
 func evaluate(in Input) Result {
+	rule, ruleName, ruleHit := matchRules(in)
+	userRule := func() Result {
+		r := result(rule.Action, ruleName, "this call matches "+ruleName, in.Sinks)
+		r.say = rule.Reason
+		if r.say == "" {
+			r.say = "this call matches " + ruleName
+		}
+		return r
+	}
 	if len(in.Sinks) == 0 {
+		if ruleHit {
+			return userRule()
+		}
 		return Result{}
 	}
 	s := in.Session
@@ -131,6 +161,15 @@ func evaluate(in Input) Result {
 		}
 	}
 
+	// 1c. Hosts the user or a repository policy blocked.
+	for _, x := range filter(in.Sinks, shell.Egress) {
+		if h := targetHost(x.Target); h != "" && in.Config.HostBlocked(h) {
+			r := result(Deny, "blocked_host", "this call sends data to "+h+", a blocked host", []shell.Sink{x})
+			r.say = "this call sends data to " + h + ", which is on the blocked list"
+			return r
+		}
+	}
+
 	// Rules 2 and 3 need the external egress; work it out only for them,
 	// because the gh repository check can ask GitHub.
 	var egress []shell.Sink
@@ -143,6 +182,12 @@ func evaluate(in Input) Result {
 		return result(Deny, "lethal_trifecta", fmt.Sprintf(
 			"this session read untrusted content (%s) and secrets (%s), and this call can send data out",
 			firstSource(s.TaintSources), firstSource(s.SensitiveSources)), egress)
+	}
+
+	// The user's, the repository's and the packs' rules come after the
+	// built-in denies, so they can add checks but never hide a leak.
+	if ruleHit {
+		return userRule()
 	}
 
 	// 3. Egress to a destination that came from untrusted content.

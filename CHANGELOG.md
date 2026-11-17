@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Added
+- Hidden-text detection: tool output that hides text from the user (Unicode tag characters, bidirectional overrides, runs of zero-width characters, or an HTML comment or invisible element with instructions to an AI) makes the session untrusted, even for a file in a trusted repository. In such a session, the asks for untrusted destinations and for lasting changes, remote code or unreadable code become blocks. The user gets a notice naming the trick.
+- Your own rules in `config.json`: `rules` (match a command by its words, a regular expression, or a tool name; `ask` or `deny`), `packs` (built-in rule sets: `terraform`, `kubernetes`, `aws`, `gcloud`, `azure`), `sensitive_paths` (more files that count as secrets) and `blocked_hosts` (never send data there). They apply after the built-in blocks, so they cannot hide a leak.
+- Team policy in a repository: `.provguard/policy.json` adds rules, packs, sensitive paths and blocked hosts, and can raise the mode. It can never weaken a check; agents cannot change or remove it; `provguard doctor` reports it; `provguard check` uses it.
+
 ## v0.4.0 — check, live hook test, destructive commands
 
 ### Added

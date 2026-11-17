@@ -57,6 +57,19 @@ type Config struct {
 	// session start. 0 = default (30); negative = keep forever.
 	AuditRetentionDays int `json:"audit_retention_days,omitempty"`
 
+	// SensitivePaths: more files whose content counts as secrets, as globs
+	// matched against the end of the path ("*.tfvars", "secrets/*").
+	SensitivePaths []string `json:"sensitive_paths,omitempty"`
+
+	// BlockedHosts: data is never sent to these hosts or their subdomains.
+	BlockedHosts []string `json:"blocked_hosts,omitempty"`
+
+	// Rules: the user's own ask or deny rules for commands and tools.
+	Rules []Rule `json:"rules,omitempty"`
+
+	// Packs: built-in rule sets to turn on (see policy.Packs).
+	Packs []string `json:"packs,omitempty"`
+
 	// LocalhostIsExternal treats localhost as a third party. Only the live
 	// benchmark needs it, because its fake attacker runs on 127.0.0.1.
 	LocalhostIsExternal bool `json:"localhost_is_external,omitempty"`
@@ -160,6 +173,9 @@ func Load(home string) (Config, error) {
 	}
 	if err := json.Unmarshal(b, &c); err != nil {
 		return Config{}, fmt.Errorf("parse %s: %w", Path(home), err)
+	}
+	if err := ValidateRules(c.Rules); err != nil {
+		return Config{}, fmt.Errorf("%s: %w", Path(home), err)
 	}
 	return c, nil
 }

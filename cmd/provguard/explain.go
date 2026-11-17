@@ -135,7 +135,7 @@ func runReset(args []string, w io.Writer) int {
 	}
 	err = store.Update(home, id, func(s *store.Session) error {
 		s.Tainted = false
-		s.TaintSources, s.UntrustedValues, s.TaintedAgents = nil, nil, nil
+		s.TaintSources, s.UntrustedValues, s.TaintedAgents, s.HiddenSources = nil, nil, nil, nil
 		s.AddStep(store.Step{At: time.Now().UTC(), Event: "Reset", Labels: []string{"untrusted_cleared_by_user"}})
 		return nil
 	})

@@ -83,6 +83,13 @@ func runCheck(args []string, w, errOut io.Writer) int {
 		}
 	}
 
+	// The repository policy applies after --profile: it can only raise the mode.
+	if c, err := cfg.WithRepoPolicy(*cwd); err != nil {
+		fmt.Fprintln(errOut, "provguard:", err)
+	} else {
+		cfg = c
+	}
+
 	sess := &store.Session{}
 	if *sessionID != "" {
 		id, err := resolveSession(home, *sessionID)
@@ -140,7 +147,7 @@ func judge(e event.Event, home string, cfg config.Config, sess *store.Session) c
 		key, _ = fingerprint.LoadOrCreate(home)
 	}
 	res := policy.Evaluate(policy.Input{
-		Tool: e.ToolName, Sinks: sinks, Text: text, Session: sess, Key: key, Config: cfg,
+		Tool: e.ToolName, Sinks: sinks, Cmds: cmdsOf(an), Text: text, Session: sess, Key: key, Config: cfg,
 		Cwd: e.Cwd, RemoteTrusted: remoteTrusted(cfg, e.Cwd),
 	})
 	if res.Decision != policy.None {
