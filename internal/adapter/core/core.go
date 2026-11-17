@@ -51,6 +51,13 @@ type Adapter interface {
 	CanAsk() bool
 }
 
+// AlwaysReplies is an Adapter whose agent needs output from every hook call
+// (Antigravity blocks a tool call whose hook prints no valid JSON).
+// EmptyReply is printed when provguard has nothing else to say.
+type AlwaysReplies interface {
+	EmptyReply() []byte
+}
+
 // Response is what the hook process writes and how it exits.
 type Response struct {
 	Stdout   []byte

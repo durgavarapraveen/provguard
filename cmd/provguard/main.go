@@ -157,12 +157,25 @@ type hookOutput struct {
 	code           int
 }
 
+// countWriter counts the bytes written through it.
+type countWriter struct {
+	w io.Writer
+	n int
+}
+
+func (c *countWriter) Write(p []byte) (int, error) {
+	n, err := c.w.Write(p)
+	c.n += n
+	return n, err
+}
+
 // runHookIO is runAgentHook with the hook's stderr. It returns the exit
 // code the agent's adapter asked for; any internal error fails open, except
 // where failClosedReason says to deny.
 func runHookIO(stdin io.Reader, stdout, stderr io.Writer, eventArg, agent string) (code int) {
 	start := time.Now()
-	out := &hookOutput{stdout: stdout, stderr: stderr}
+	written := &countWriter{w: stdout}
+	out := &hookOutput{stdout: written, stderr: stderr}
 	ad := adapter.Default()
 	preTool := eventArg == "PreToolUse"
 	rec := audit.Record{Agent: ad.Name(), Event: eventArg, Decision: "none"}
@@ -179,6 +192,9 @@ func runHookIO(stdin io.Reader, stdout, stderr io.Writer, eventArg, agent string
 					}
 				}
 			}
+		}
+		if r, ok := ad.(core.AlwaysReplies); ok && written.n == 0 && out.code == 0 {
+			written.Write(r.EmptyReply())
 		}
 		rec.Time = start
 		rec.LatencyMicros = time.Since(start).Microseconds()

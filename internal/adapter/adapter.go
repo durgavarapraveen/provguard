@@ -9,6 +9,7 @@ package adapter
 
 import (
 	"bytes"
+	"github.com/durgavarapraveen/provguard/internal/adapter/antigravity"
 
 	"github.com/durgavarapraveen/provguard/internal/adapter/claudecode"
 	"github.com/durgavarapraveen/provguard/internal/adapter/codex"
@@ -26,13 +27,14 @@ import (
 // Claude Code (which accepts any JSON object) last.
 var adapters = []core.Adapter{
 	cursor.Adapter{},
-	devin.Adapter{},    // Devin (formerly Windsurf) also runs the Claude Code hooks
-	copilot.Adapter{},  // never detected; named by its hooks (--agent copilot)
-	codex.Adapter{},    // never detected; named by its hooks (--agent codex)
-	droid.Adapter{},    // never detected; named by its hooks (--agent factory-droid)
-	gemini.Adapter{},   // never detected; named by its hooks (--agent gemini-cli)
-	kiro.Adapter{},     // never detected; named by its hooks (--agent kiro)
-	opencode.Adapter{}, // never detected; named by its plugin (--agent opencode)
+	devin.Adapter{},       // Devin (formerly Windsurf) also runs the Claude Code hooks
+	copilot.Adapter{},     // never detected; named by its hooks (--agent copilot)
+	codex.Adapter{},       // never detected; named by its hooks (--agent codex)
+	droid.Adapter{},       // never detected; named by its hooks (--agent factory-droid)
+	gemini.Adapter{},      // never detected; named by its hooks (--agent gemini-cli)
+	kiro.Adapter{},        // never detected; named by its hooks (--agent kiro)
+	opencode.Adapter{},    // never detected; named by its plugin (--agent opencode)
+	antigravity.Adapter{}, // never detected; named by its hooks (--agent antigravity)
 	claudecode.Adapter{},
 }
 
