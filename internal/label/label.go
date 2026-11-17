@@ -60,9 +60,9 @@ var commandToolName = regexp.MustCompile(`(?i)(?:^|_)(?:run_in_terminal|run_comm
 // (for example the desktop app's mcp__terminal__run_in_terminal). Such tools
 // must be checked like Bash, or they bypass every shell rule (week 7).
 func CommandTool(e event.Event) (string, bool) {
-	if e.ToolName == "Shell" {
-		// Cursor's terminal tool: PowerShell on Windows, the user's shell
-		// elsewhere, so it is read like any command of unknown shell.
+	if e.ToolName == event.ShellTool {
+		// A shell command whose shell the agent does not say (see
+		// event.ShellTool): read like any command of unknown shell.
 		s, _ := e.ToolInput["command"].(string)
 		return s, s != ""
 	}

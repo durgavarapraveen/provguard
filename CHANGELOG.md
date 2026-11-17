@@ -16,6 +16,7 @@
 - Block messages are one plain sentence plus the next step (`provguard allow`, `provguard config allow-host`). The audit log keeps the technical reason.
 - `provguard review` groups what was stopped, or would have been, and says what to do next. In watch-only mode, provguard suggests a review once after three days.
 - `provguard help`; the help text is grouped for new users.
+- GitHub Copilot support (VS Code, Copilot app, Copilot CLI): `init` installs `~/.copilot/hooks/provguard.json` (`provguard hook --agent copilot`), `uninstall` removes it, and self-protection covers Copilot's hook files and `disableAllHooks` in its settings.
 - Cursor support: Cursor runs the Claude Code hooks, and provguard now understands its payloads (camelCase events, `Shell`, `Delete`, `MCP:<tool>`, `conversation_id`) and answers in Cursor's format. Agents are now adapters behind one interface (`internal/adapter/core`), one package per agent.
 - The setup offers to add provguard to your PATH and does it (Windows user PATH, or a tagged line in the shell start-up file on macOS and Linux); uninstall removes it. The install scripts print a plain message when no release is found.
 - `provguard uninstall` removes provguard completely, `~/.provguard` included, and gives marked sessions their old title back: a small cleanup hook restores each title on your next message there, then removes itself (at the latest after 30 days). `--now` skips that; `--keep-data` keeps logs and settings.

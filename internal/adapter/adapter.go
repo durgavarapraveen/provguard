@@ -11,6 +11,7 @@ import (
 	"bytes"
 
 	"github.com/durgavarapraveen/provguard/internal/adapter/claudecode"
+	"github.com/durgavarapraveen/provguard/internal/adapter/copilot"
 	"github.com/durgavarapraveen/provguard/internal/adapter/core"
 	"github.com/durgavarapraveen/provguard/internal/adapter/cursor"
 )
@@ -19,17 +20,42 @@ import (
 // Claude Code (which accepts any JSON object) last.
 var adapters = []core.Adapter{
 	cursor.Adapter{},
+	copilot.Adapter{}, // never detected; named by its hooks (--agent copilot)
 	claudecode.Adapter{},
+}
+
+// ByName returns the adapter called name, for hooks that name their agent
+// on the command line (`provguard hook --agent copilot PreToolUse`).
+func ByName(name string) (core.Adapter, bool) {
+	for _, a := range adapters {
+		if a.Name() == name {
+			return a, true
+		}
+	}
+	return nil, false
 }
 
 // Default is the adapter used before a payload is read, for example to
 // answer when stdin could not be read at all.
 func Default() core.Adapter { return claudecode.Adapter{} }
 
-// ForPayload returns the adapter for raw, and raw without a UTF-8 BOM (some
-// shells, for example PowerShell pipes, prepend one).
+// Select returns the adapter named by the hook command (--agent), or else
+// the one that recognizes raw; and raw without a UTF-8 BOM.
+func Select(name string, raw []byte) (core.Adapter, []byte) {
+	if a, ok := ByName(name); ok {
+		return a, trimBOM(raw)
+	}
+	return ForPayload(raw)
+}
+
+// trimBOM drops a UTF-8 byte-order mark: some shells, for example
+// PowerShell pipes, prepend one.
+func trimBOM(raw []byte) []byte { return bytes.TrimPrefix(raw, []byte("\xef\xbb\xbf")) }
+
+// ForPayload returns the adapter that recognizes raw, and raw without a
+// UTF-8 BOM.
 func ForPayload(raw []byte) (core.Adapter, []byte) {
-	raw = bytes.TrimPrefix(raw, []byte("\xef\xbb\xbf"))
+	raw = trimBOM(raw)
 	for _, a := range adapters {
 		if a.Detect(raw) {
 			return a, raw

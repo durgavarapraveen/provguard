@@ -77,7 +77,16 @@ func IsSettingsFile(p string) bool {
 	return settingsSegs(strings.Split(path.Clean(norm(lexical(p))), "/"))
 }
 
-// settingsSegs: the last two segments are ".claude" and settings[.local].json.
+// settingsReason marks a settings file that can register or switch off
+// hooks; only its hook-related keys are protected (see guardedKeys).
+const settingsReason = "an agent settings file"
+
+// settingsSegs: the path is a settings[.local].json that can hold hooks or
+// disableAllHooks for an agent provguard protects:
+//   - .claude/settings*.json (Claude Code; Cursor and Copilot read it too),
+//   - .copilot/settings.json (Copilot, user level),
+//   - .github/copilot/settings*.json (Copilot, repository level).
+//
 // Segments may be glob patterns from the shell (".cla?de"), so they are
 // matched as patterns against the real names.
 func settingsSegs(segs []string) bool {
@@ -85,10 +94,26 @@ func settingsSegs(segs []string) bool {
 	if n < 2 {
 		return false
 	}
+	if !segMatch(segs[n-1], "settings.json") && !segMatch(segs[n-1], "settings.local.json") {
+		return false
+	}
 	// A folder computed at run time ("$(echo .claude)/settings.json",
-	// "$D/settings.json") may be .claude.
-	dir := segMatch(segs[n-2], ".claude") || strings.Contains(segs[n-2], "$")
-	return dir && (segMatch(segs[n-1], "settings.json") || segMatch(segs[n-1], "settings.local.json"))
+	// "$D/settings.json") may be any of them.
+	dir := segs[n-2]
+	return segMatch(dir, ".claude") || segMatch(dir, ".copilot") || strings.Contains(dir, "$") ||
+		segMatch(dir, "copilot") && n >= 3 && segMatch(segs[n-3], ".github")
+}
+
+// copilotHooksDir: a .copilot/hooks folder or a file in it. Every file there
+// is a Copilot hook configuration, provguard's included, so agents may not
+// change or remove any of them.
+func copilotHooksDir(segs []string) bool {
+	for i := 0; i+1 < len(segs); i++ {
+		if segMatch(segs[i], ".copilot") && segMatch(segs[i+1], "hooks") {
+			return true
+		}
+	}
+	return false
 }
 
 func segMatch(seg, name string) bool {
@@ -164,11 +189,13 @@ func protectedPath(p, op, home, cwd string, cds []string) string {
 		last := segs[len(segs)-1]
 		switch {
 		case settingsSegs(segs):
-			return "a Claude settings file"
+			return settingsReason
 		case (segMatch(last, "settings.json") || segMatch(last, "settings.local.json")) && cdIntoClaude(cds):
-			return "a Claude settings file"
+			return settingsReason
 		case segMatch(last, ".claude"):
 			return "a .claude directory"
+		case copilotHooksDir(segs) || segMatch(last, ".copilot"):
+			return "Copilot's hook configuration"
 		}
 		for _, s := range segs {
 			if segMatch(s, ".provguard") {
@@ -278,7 +305,7 @@ func checkFileTool(e event.Event, home string) Verdict {
 	switch why {
 	case "":
 		return Verdict{}
-	case "a Claude settings file":
+	case settingsReason:
 		// handled below: only hook-related keys are protected
 	default:
 		return deny("self_protect_home", "blocked a "+e.ToolName+" to "+why+" ("+p+")")
@@ -425,7 +452,9 @@ var protectedText = regexp.MustCompile(`(?i)` + strings.Join([]string{
 	`disableAllHooks`,
 	`allowManagedHooksOnly`,
 	`\.claude[\\/]+settings(?:\.local)?\.json`,
-	`\.claude[\\/]+set[a-z0-9._]*[*?\[]`, // a glob that can expand to a settings file
+	`\.claude[\\/]+set[a-z0-9._]*[*?\[]`,  // a glob that can expand to a settings file
+	`\.copilot[\\/]+(?:hooks|settings)`,   // Copilot hook files and settings
+	`\.github[\\/]+copilot[\\/]+settings`, // Copilot repository settings
 	`\.provguard\b`,
 	`\.pro[a-z0-9]*[*?\[]`, // a glob that can expand to .provguard
 	// A quoted subcommand or setting counts too (review finding:
