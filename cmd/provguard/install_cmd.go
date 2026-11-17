@@ -95,6 +95,7 @@ func (r installRun) init() int {
 	cfg, cfgErr := config.Load(r.home)
 	addPath := false
 	agents := presentAgents() // --yes protects every agent it finds
+	claude := true            // Claude Code's hooks, which Cursor and Devin run too
 
 	if r.interactive {
 		if cfgErr != nil {
@@ -106,15 +107,18 @@ func (r installRun) init() int {
 			fmt.Fprintln(r.out)
 			addPath = g.confirm("Add provguard to your PATH, so the provguard command works in any folder?", true)
 		}
-		var chosen []otherAgent
-		for _, a := range agents {
-			fmt.Fprintln(r.out)
-			if g.confirm("Also protect "+a.name+"?", true) {
-				chosen = append(chosen, a)
-			}
+		fmt.Fprintln(r.out)
+		if claude, agents = askAgents(g, otherAgents); !claude && len(agents) == 0 {
+			fmt.Fprintln(r.out, "No agent chosen. Nothing changed.")
+			return 0
 		}
-		agents = chosen
-		fmt.Fprintf(r.out, "\nprovguard will add its hooks to %s (a backup is kept).\n", r.settings)
+		fmt.Fprintln(r.out)
+		if claude {
+			fmt.Fprintf(r.out, "provguard will add its hooks to %s (a backup is kept).\n", r.settings)
+		}
+		for _, a := range agents {
+			fmt.Fprintf(r.out, "provguard will protect %s.\n", a.name)
+		}
 		if !g.confirm("Install now?", true) {
 			fmt.Fprintln(r.out, "Nothing changed.")
 			return 0
@@ -145,9 +149,11 @@ func (r installRun) init() int {
 		fmt.Fprintln(r.out, "No change written. Run `provguard init` in a terminal for the guided setup, or add --yes.")
 		return 0
 	}
-	backup, err := install.Save(r.settings, s)
-	if err != nil {
-		return r.fail(err)
+	backup := ""
+	if claude {
+		if backup, err = install.Save(r.settings, s); err != nil {
+			return r.fail(err)
+		}
 	}
 	_ = os.Remove(pendingPath(r.home)) // installed again: no uninstall in progress
 	pathNote := r.pathNote(addPath)
@@ -155,7 +161,7 @@ func (r installRun) init() int {
 		pathNote = strings.TrimSpace(pathNote + "\n" + strings.Join(notes, "\n"))
 	}
 	if r.interactive {
-		r.summary(cfg, pathNote)
+		r.summary(cfg, pathNote, claude)
 		return 0
 	}
 	if pathNote != "" {
@@ -173,15 +179,17 @@ func (r installRun) init() int {
 }
 
 // summary tells a new user what is now on and the three commands they need.
-func (r installRun) summary(cfg config.Config, pathNote string) {
+func (r installRun) summary(cfg config.Config, pathNote string, claude bool) {
 	p := cfg.ProfileName()
 	fmt.Fprintf(r.out, "\n✔ provguard is on. Mode: %s (%s).\n", p, config.Describe(p))
 	if pathNote != "" {
 		fmt.Fprintln(r.out, pathNote)
 	}
-	for _, f := range doctor.HookIntegrity(doctor.Options{Home: r.home, UserSettings: r.settings, Events: claudecode.Events}) {
-		if f.Severity == "HIGH" || f.Severity == "MED" {
-			fmt.Fprintf(r.out, "  ! %s\n", f.Message)
+	if claude { // check the Claude Code hooks just written
+		for _, f := range doctor.HookIntegrity(doctor.Options{Home: r.home, UserSettings: r.settings, Events: claudecode.Events}) {
+			if f.Severity == "HIGH" || f.Severity == "MED" {
+				fmt.Fprintf(r.out, "  ! %s\n", f.Message)
+			}
 		}
 	}
 	fmt.Fprint(r.out, `

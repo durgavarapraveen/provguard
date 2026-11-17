@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+- `provguard init` asks one question for the coding agents to protect: `all` (Claude Code and every agent found), or the numbers of the ones you want, Claude Code included. Choosing only other agents leaves Claude Code's settings unchanged.
+
 ## v0.3.0 — more coding agents
 
 provguard now protects nine coding agents besides Claude Code. `provguard init` finds the installed ones and adds provguard to each; `provguard uninstall` removes it from all. None has been tested live in its agent yet: please report what you see.
