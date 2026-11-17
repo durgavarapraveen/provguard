@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Added
+- `provguard check "<command>"`: shows what provguard would do with a shell command, and why, without running it or writing anything. `--untrusted` and `--secrets` judge it as in a session that read untrusted content or secrets; `--session` uses a real session's state. Exit code 0 when allowed, 1 when it would ask or block.
+- `provguard doctor --live`: sends a test write to a protected file through each installed agent's hook, with the agent's own payload, and checks that the answer is a block in that agent's reply format. Test calls use a temporary provguard home, so they leave nothing in the audit log. Each adapter now has a `Probe` method for this.
+- More destructive commands ask first, in every session: `terraform`/`tofu` destroy, `pulumi destroy`, cluster-wide `kubectl delete` (namespaces, volumes, CRDs, nodes, `--all`), `helm uninstall`, `docker system prune` and volume removal, cloud deletes (`aws … delete-*`/`terminate-*`, `aws s3 rb`, recursive `s3 rm`, `gcloud`/`az … delete`, `gsutil rb`), SQL that drops or empties a table (`DROP`, `TRUNCATE`, `DELETE` without `WHERE`), `FLUSHALL`, `dropdb`, `dd` to a disk device, and PowerShell disk cmdlets.
+
 ### Changed
 - `provguard init` asks one question for the coding agents to protect: `all` (Claude Code and every agent found), or the numbers of the ones you want, Claude Code included. Choosing only other agents leaves Claude Code's settings unchanged.
 

@@ -75,6 +75,11 @@ func (Adapter) Feedback(e event.Event, notice, _ string) []byte {
 	return claudecode.Adapter{}.Feedback(e, notice, "")
 }
 
+// Probe: a Create, Droid's tool for writing a file.
+func (Adapter) Probe(path string) (string, []byte) {
+	return "PreToolUse", core.ProbePayload("PreToolUse", "Create", map[string]any{"file_path": path, "content": "x"}, nil)
+}
+
 // CanAsk: see the package comment.
 func (Adapter) CanAsk() bool { return false }
 

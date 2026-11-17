@@ -16,6 +16,7 @@ package codex
 
 import (
 	"path/filepath"
+	"strings"
 
 	"github.com/durgavarapraveen/provguard/internal/adapter/claudecode"
 	"github.com/durgavarapraveen/provguard/internal/adapter/core"
@@ -61,6 +62,12 @@ func (Adapter) Reply(d core.Decision, reason string) (core.Response, error) {
 // Feedback: Codex shows systemMessage as a warning; it has no session title.
 func (Adapter) Feedback(e event.Event, notice, _ string) []byte {
 	return claudecode.Adapter{}.Feedback(e, notice, "")
+}
+
+// Probe: an apply_patch that adds a file, Codex's way to write one.
+func (Adapter) Probe(path string) (string, []byte) {
+	patch := strings.Join([]string{"*** Begin Patch", "*** Add File: " + path, "+x", "*** End Patch", ""}, "\n")
+	return "PreToolUse", core.ProbePayload("PreToolUse", core.PatchTool, map[string]any{"command": patch}, nil)
 }
 
 // CanAsk: Codex parses "ask" but does not support it yet; it marks the

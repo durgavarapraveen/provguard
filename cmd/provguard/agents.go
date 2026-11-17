@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"io"
+	"path/filepath"
 
 	"github.com/durgavarapraveen/provguard/internal/adapter/antigravity"
 	"github.com/durgavarapraveen/provguard/internal/adapter/codex"
@@ -19,53 +20,69 @@ import (
 // uninstall removes them all.
 type otherAgent struct {
 	name      string // shown to the user
+	agent     string // adapter name, as in `provguard hook --agent NAME`
 	present   func() bool
 	install   func(exe string) (string, error)
 	uninstall func() (bool, error)
-	after     string // what the user must still do, if anything
+	hookFile  func() (string, error) // where install puts provguard's hooks
+	after     string                 // what the user must still do, if anything
 }
 
 var otherAgents = []otherAgent{
 	{
 		name:      "GitHub Copilot (VS Code, Copilot app, Copilot CLI)",
+		agent:     copilot.Agent,
 		present:   copilot.Present,
+		hookFile:  func() (string, error) { d, err := copilot.HooksDir(); return filepath.Join(d, "provguard.json"), err },
 		install:   func(exe string) (string, error) { return copilot.Install(exe, install.HookTimeoutSeconds) },
 		uninstall: copilot.Uninstall,
 	},
 	{
 		name:      "OpenAI Codex",
+		agent:     codex.Agent,
 		present:   codex.Present,
+		hookFile:  codex.HooksFile,
 		install:   codex.Install,
 		uninstall: codex.Uninstall,
 		after:     "In Codex, run /hooks once and trust provguard's hooks: Codex skips new hooks until you do.",
 	},
 	{
 		name:      "Gemini CLI",
+		agent:     gemini.Agent,
 		present:   gemini.Present,
+		hookFile:  gemini.SettingsFile,
 		install:   gemini.Install,
 		uninstall: gemini.Uninstall,
 	},
 	{
 		name:      "Kiro (IDE and CLI)",
+		agent:     kiro.Agent,
 		present:   kiro.Present,
+		hookFile:  kiro.HooksFile,
 		install:   kiro.Install,
 		uninstall: kiro.Uninstall,
 	},
 	{
 		name:      "Factory Droid",
+		agent:     droid.Agent,
 		present:   droid.Present,
+		hookFile:  droid.HooksFile,
 		install:   droid.Install,
 		uninstall: droid.Uninstall,
 	},
 	{
 		name:      "OpenCode",
+		agent:     opencode.Agent,
 		present:   opencode.Present,
+		hookFile:  opencode.PluginFile,
 		install:   opencode.Install,
 		uninstall: opencode.Uninstall,
 	},
 	{
 		name:      "Antigravity (app, CLI and IDE)",
+		agent:     antigravity.Agent,
 		present:   antigravity.Present,
+		hookFile:  antigravity.HooksFile,
 		install:   antigravity.Install,
 		uninstall: antigravity.Uninstall,
 	},

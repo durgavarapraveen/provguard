@@ -67,26 +67,7 @@ func handle(ad core.Adapter, e event.Event, out *hookOutput, rec *audit.Record) 
 
 	switch e.Kind {
 	case event.PreTool:
-		var an *shell.Analysis
-		var sinks []shell.Sink
-		var text string
-		if e.ToolName == "Bash" || e.ToolName == "PowerShell" {
-			d := shell.Bash
-			if e.ToolName == "PowerShell" {
-				d = shell.PowerShell
-			}
-			text, _ = e.ToolInput["command"].(string)
-			an = shell.Analyze(text, d)
-			sinks = an.Sinks
-		} else if cmd, ok := label.CommandTool(e); ok {
-			// MCP tools that run shell commands (e.g. the desktop app's
-			// terminal tool): unknown shell, so both readings count.
-			text = cmd
-			an = shell.AnalyzeUnknown(cmd)
-			sinks = an.Sinks
-		} else {
-			sinks, text = policy.ToolSinks(e, cfg)
-		}
+		an, sinks, text := callSinks(e, cfg)
 		for _, s := range sinks {
 			rec.Sinks = append(rec.Sinks, s.String())
 		}
@@ -178,6 +159,28 @@ func handle(ad core.Adapter, e event.Event, out *hookOutput, rec *audit.Record) 
 			}
 		}
 	}
+}
+
+// callSinks reads a tool call: the shell analysis (for shell commands), the
+// sinks the call can reach, and the text matched against secrets.
+func callSinks(e event.Event, cfg config.Config) (*shell.Analysis, []shell.Sink, string) {
+	if e.ToolName == "Bash" || e.ToolName == "PowerShell" {
+		d := shell.Bash
+		if e.ToolName == "PowerShell" {
+			d = shell.PowerShell
+		}
+		text, _ := e.ToolInput["command"].(string)
+		an := shell.Analyze(text, d)
+		return an, an.Sinks, text
+	}
+	if cmd, ok := label.CommandTool(e); ok {
+		// A shell command whose shell is not known (an MCP terminal tool,
+		// Cursor's Shell): both readings count.
+		an := shell.AnalyzeUnknown(cmd)
+		return an, an.Sinks, cmd
+	}
+	sinks, text := policy.ToolSinks(e, cfg)
+	return nil, sinks, text
 }
 
 // configChanged re-checks hook integrity when settings change mid-session

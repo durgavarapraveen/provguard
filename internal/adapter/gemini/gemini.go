@@ -114,6 +114,11 @@ func (Adapter) Feedback(e event.Event, notice, _ string) []byte {
 	return b
 }
 
+// Probe: a write_file on BeforeTool.
+func (Adapter) Probe(path string) (string, []byte) {
+	return "BeforeTool", core.ProbePayload("BeforeTool", "write_file", map[string]any{"file_path": path, "content": "x"}, nil)
+}
+
 // CanAsk: Gemini CLI hooks can only allow or deny.
 func (Adapter) CanAsk() bool { return false }
 

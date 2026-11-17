@@ -90,5 +90,11 @@ func (Adapter) Reply(d core.Decision, reason string) (core.Response, error) {
 // Feedback: Devin's hook output reaches the agent, not the user.
 func (Adapter) Feedback(event.Event, string, string) []byte { return nil }
 
+// Probe: a write with prompt_id, which tells Devin's payloads apart.
+func (Adapter) Probe(path string) (string, []byte) {
+	return "PreToolUse", core.ProbePayload("PreToolUse", "write", map[string]any{"file_path": path, "content": "x"},
+		map[string]any{"prompt_id": "probe"})
+}
+
 // CanAsk: Devin hooks can only approve or block.
 func (Adapter) CanAsk() bool { return false }

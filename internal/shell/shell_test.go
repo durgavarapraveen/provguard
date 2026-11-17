@@ -162,7 +162,7 @@ func TestBashPersistDestroy(t *testing.T) {
 		{`git branch -D feature`, []string{"DESTROY:git_branch_delete"}},
 		{`find . -name '*.log' -delete`, []string{"DESTROY:find_delete"}},
 		{`shred -u secrets.txt`, []string{"DESTROY:shred"}},
-		{`dd if=/dev/zero of=/dev/sda`, nil}, // a write, not a sink by itself
+		{`dd if=/dev/zero of=/dev/sda`, []string{"DESTROY:dd_device->/dev/sda"}}, // overwrites a disk, like mkfs
 		{`mkfs.ext4 /dev/sdb1`, []string{"DESTROY:mkfs.ext4"}},
 	})
 }

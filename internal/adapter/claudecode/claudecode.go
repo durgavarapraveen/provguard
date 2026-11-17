@@ -118,6 +118,11 @@ func (Adapter) Reply(d core.Decision, reason string) (core.Response, error) {
 	return core.Response{Stdout: b}, err
 }
 
+// Probe: a Write in Claude Code's format.
+func (Adapter) Probe(path string) (string, []byte) {
+	return "PreToolUse", core.ProbePayload("PreToolUse", "Write", map[string]any{"file_path": path, "content": "x"}, nil)
+}
+
 func (Adapter) CanAsk() bool { return true }
 
 // Feedback uses "systemMessage" (shown to the user) and

@@ -168,6 +168,15 @@ func (Adapter) EmptyReply() []byte { return EmptyReply() }
 // EmptyReply is the JSON object printed when there is nothing to say.
 func EmptyReply() []byte { return []byte("{}\n") }
 
+// Probe: a write_to_file in Antigravity's camelCase format.
+func (Adapter) Probe(path string) (string, []byte) {
+	b, _ := json.Marshal(map[string]any{
+		"conversationId": core.ProbeSession,
+		"toolCall":       map[string]any{"name": "write_to_file", "args": map[string]any{"TargetFile": path, "CodeContent": "x"}},
+	})
+	return "PreToolUse", b
+}
+
 func (Adapter) CanAsk() bool { return true }
 
 // Dir is Antigravity's folder, ~/.gemini. PROVGUARD_ANTIGRAVITY_HOME

@@ -98,6 +98,11 @@ func (Adapter) Reply(_ core.Decision, reason string) (core.Response, error) {
 // Feedback: stdout on exit 0 goes into the agent's context, not to the user.
 func (Adapter) Feedback(event.Event, string, string) []byte { return nil }
 
+// Probe: a write with Kiro's argument names.
+func (Adapter) Probe(path string) (string, []byte) {
+	return "PreToolUse", core.ProbePayload("PreToolUse", "write", map[string]any{"path": path, "file_text": "x"}, nil)
+}
+
 // CanAsk: Kiro hooks can only block.
 func (Adapter) CanAsk() bool { return false }
 

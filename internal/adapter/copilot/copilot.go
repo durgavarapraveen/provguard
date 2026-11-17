@@ -73,6 +73,11 @@ func (Adapter) Reply(d core.Decision, reason string) (core.Response, error) {
 // Feedback: Copilot's command hooks have no user notice or session title.
 func (Adapter) Feedback(event.Event, string, string) []byte { return nil }
 
+// Probe: a Write in Copilot's (Claude-Code-shaped) format.
+func (Adapter) Probe(path string) (string, []byte) {
+	return "PreToolUse", core.ProbePayload("PreToolUse", "Write", map[string]any{"file_path": path, "content": "x"}, nil)
+}
+
 // CanAsk: Copilot shows its hook-permission prompt for "ask". (In Copilot
 // CLI autopilot and in the cloud it denies instead, which is safe.)
 func (Adapter) CanAsk() bool { return true }

@@ -441,6 +441,7 @@ func firstURL(args []string) string {
 // classify handles programs that are not wrappers. It is shared by both dialects.
 func classify(a *Analysis, name string, args []string) {
 	pos := positional(args)
+	destructive(a, name, args, pos)
 	switch {
 	case httpClients[name]:
 		// One sink per destination: every URL, and hosts named by options

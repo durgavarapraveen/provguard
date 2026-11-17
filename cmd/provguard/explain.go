@@ -152,6 +152,7 @@ func runReset(args []string, w io.Writer) int {
 func runDoctor(args []string, w io.Writer) int {
 	fs := flag.NewFlagSet("doctor", flag.ContinueOnError)
 	asJSON := fs.Bool("json", false, "print findings as JSON")
+	live := fs.Bool("live", false, "send a test call through each installed agent's hook")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -168,6 +169,9 @@ func runDoctor(args []string, w io.Writer) int {
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		return 1
+	}
+	if *live {
+		return runDoctorLive(w, settings, home)
 	}
 	f := doctor.Run(doctor.Options{Home: home, UserSettings: settings, Repo: repo, Events: claudecode.Events})
 	if *asJSON {
