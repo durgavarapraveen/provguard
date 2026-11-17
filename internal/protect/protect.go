@@ -139,12 +139,13 @@ func codexConfig(segs []string) bool {
 	return false
 }
 
-// copilotHooksDir: a .copilot/hooks folder or a file in it. Every file there
-// is a Copilot hook configuration, provguard's included, so agents may not
-// change or remove any of them.
-func copilotHooksDir(segs []string) bool {
+// hooksDirOf: a <agentDir>/hooks folder or a file in it, for agents that
+// keep one file per hook set there (.copilot/hooks, .kiro/hooks). Every file
+// there is a hook configuration, provguard's included, and one can disable
+// another ("enabled": false), so agents may not change or remove any.
+func hooksDirOf(segs []string, agentDir string) bool {
 	for i := 0; i+1 < len(segs); i++ {
-		if segMatch(segs[i], ".copilot") && segMatch(segs[i+1], "hooks") {
+		if segMatch(segs[i], agentDir) && segMatch(segs[i+1], "hooks") {
 			return true
 		}
 	}
@@ -231,8 +232,10 @@ func protectedPath(p, op, home, cwd string, cds []string) string {
 			return settingsReason
 		case segMatch(last, ".claude"):
 			return "a .claude directory"
-		case copilotHooksDir(segs) || segMatch(last, ".copilot"):
+		case hooksDirOf(segs, ".copilot") || segMatch(last, ".copilot"):
 			return "Copilot's hook configuration"
+		case hooksDirOf(segs, ".kiro"):
+			return "Kiro's hook configuration"
 		case codexConfig(segs) || segMatch(last, ".codex"):
 			return "Codex's hook configuration"
 		}
@@ -498,6 +501,7 @@ var protectedText = regexp.MustCompile(`(?i)` + strings.Join([]string{
 	`\.github[\\/]+copilot[\\/]+settings`,          // Copilot repository settings
 	`\.gemini[\\/]+settings`,                       // Gemini CLI settings (hooks, hooksConfig)
 	`\.?devin[\\/]+(?:config|hooks\.v1)`,           // Devin config and hooks
+	`\.kiro[\\/]+hooks`,                            // Kiro hook files
 	`read_config_from`,                             // Devin's switch for the Claude Code hooks
 	`\.codex[\\/]+(?:config|hooks|requirements)\.`, // Codex hook settings
 	`\.provguard\b`,

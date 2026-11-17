@@ -168,8 +168,8 @@ func (Adapter) Parse(raw []byte, eventArg string) (event.Event, error) { return 
 
 // Reply uses Cursor's own format. The message goes to both the user and the
 // agent, so the agent can explain the block instead of retrying.
-func (Adapter) Reply(d core.Decision, reason string) ([]byte, error) {
-	return json.Marshal(map[string]string{
+func (Adapter) Reply(d core.Decision, reason string) (core.Response, error) {
+	return core.JSONResponse(map[string]string{
 		"permission": string(d), "user_message": reason, "agent_message": reason,
 	})
 }

@@ -18,7 +18,6 @@ package gemini
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -103,8 +102,8 @@ func (Adapter) Parse(raw []byte, eventArg string) (event.Event, error) {
 
 // Reply uses Gemini CLI's decision fields. The reason goes to the agent as
 // the tool error.
-func (Adapter) Reply(d core.Decision, reason string) ([]byte, error) {
-	return json.Marshal(map[string]string{"decision": string(d), "reason": reason})
+func (Adapter) Reply(d core.Decision, reason string) (core.Response, error) {
+	return core.JSONResponse(map[string]string{"decision": string(d), "reason": reason})
 }
 
 // Feedback: systemMessage is shown to the user; there is no session title.
@@ -148,16 +147,6 @@ func SettingsFile() (string, error) {
 	return filepath.Join(d, "settings.json"), err
 }
 
-// command is the hook command line. An unquoted path works in cmd,
-// PowerShell and sh alike, so it is used when the path has no space.
-func command(exe, ev string) string {
-	exe = filepath.ToSlash(exe)
-	if strings.ContainsAny(exe, " \t") {
-		exe = fmt.Sprintf("%q", exe)
-	}
-	return fmt.Sprintf("%s hook --agent %s %s", exe, Agent, ev)
-}
-
 // Install adds provguard's hooks to Gemini CLI's settings.json, keeping
 // every other setting and hook, and returns the file's path.
 func Install(exe string) (string, error) {
@@ -171,7 +160,7 @@ func Install(exe string) (string, error) {
 	}
 	err = install.AddHooks(s, Events, func(ev string) map[string]any {
 		return map[string]any{
-			"type": "command", "name": "provguard-" + strings.ToLower(ev), "command": command(exe, ev),
+			"type": "command", "name": "provguard-" + strings.ToLower(ev), "command": core.HookCommandHere(exe, Agent, ev),
 			"timeout": install.HookTimeoutSeconds * 1000, // milliseconds
 		}
 	}, func(ev string) string {

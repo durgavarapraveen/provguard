@@ -30,7 +30,8 @@ func TestParse(t *testing.T) {
 	if paths, _ := e.ToolInput["path"].([]any); e.ToolName != core.PatchTool || len(paths) != 1 || paths[0] != ".claude/settings.json" {
 		t.Errorf("apply_patch: %+v", e)
 	}
-	b, _ := Adapter{}.Reply(core.Deny, "no")
+	r, _ := Adapter{}.Reply(core.Deny, "no")
+	b := r.Stdout
 	if string(b) != `{"decision":"block","reason":"no"}` {
 		t.Errorf("reply %s", b)
 	}
