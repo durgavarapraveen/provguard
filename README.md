@@ -144,7 +144,8 @@ Method, per-case results and caveats (the traces are author-written; real-agent 
 | Cursor (desktop app) | Yes, through Cursor's support for Claude Code hooks (*Settings → Agents → Third-Party Imports*, on by default); not tested live yet. Cursor does not act on "ask", so provguard blocks instead and offers `provguard allow`. Cloud agents do not run user-level hooks, and the Cursor CLI is reported not to run them. |
 | Claude desktop app, Chat with MCP servers | No: Chat does not run Claude Code hooks (planned MCP proxy) |
 | GitHub Copilot: VS Code, Copilot app, Copilot CLI | Yes: `provguard init` adds `~/.copilot/hooks/provguard.json` when it finds Copilot; not tested live yet. Copilot asks you itself for "ask" decisions (in CLI autopilot and in the cloud it blocks instead). Cloud agents use only the repository's `.github/hooks`. |
-| Codex, Gemini CLI, Antigravity, Windsurf, Kiro, Factory Droid, OpenCode | Not yet (planned adapters) |
+| OpenAI Codex (CLI, IDE extension) | Yes: `provguard init` adds provguard to `~/.codex/hooks.json` when it finds Codex. **Run `/hooks` in Codex once and trust provguard's hooks**: Codex skips new hooks until you do. Codex does not act on "ask", so provguard blocks instead and offers `provguard allow`. Not tested live yet. |
+| Gemini CLI, Antigravity, Windsurf, Kiro, Factory Droid, OpenCode | Not yet (planned adapters) |
 
 Each agent has a small adapter in `internal/adapter/<agent>` that implements `core.Adapter`; the checks themselves are shared.
 
