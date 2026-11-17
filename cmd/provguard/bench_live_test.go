@@ -4,6 +4,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -20,7 +21,15 @@ func TestMain(m *testing.M) {
 	}
 	// Tests never change the real PATH: they get an in-memory one.
 	userPath = fakeUserPath(map[string]bool{})
-	os.Exit(m.Run())
+	// ... nor a real Copilot folder: COPILOT_HOME points at an empty temp dir.
+	d, err := os.MkdirTemp("", "pg-copilot-home")
+	if err != nil {
+		panic(err)
+	}
+	os.Setenv("COPILOT_HOME", filepath.Join(d, "none"))
+	code := m.Run()
+	os.RemoveAll(d)
+	os.Exit(code)
 }
 
 var urlInPrompt = regexp.MustCompile(`http://127\.0\.0\.1:\d+`)

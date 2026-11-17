@@ -34,3 +34,8 @@ type Event struct {
 	ToolInput  map[string]any  // decoded tool input
 	ToolOutput json.RawMessage // raw tool response, never logged as-is
 }
+
+// ShellTool is the tool name adapters give a shell command whose shell is
+// not known: Cursor's Shell tool, and Copilot's Bash tool (PowerShell on
+// Windows). Checks read its command as both Bash and PowerShell.
+const ShellTool = "Shell"

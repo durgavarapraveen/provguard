@@ -24,10 +24,6 @@ import (
 // Agent names events that came from Cursor.
 const Agent = "cursor"
 
-// ShellTool is Cursor's terminal tool. Cursor runs PowerShell on Windows and
-// the user's shell elsewhere, so callers analyze its command both ways.
-const ShellTool = "Shell"
-
 // payload holds the fields provguard reads from a Cursor hook call.
 type payload struct {
 	CursorVersion  string          `json:"cursor_version"`
@@ -105,7 +101,7 @@ func parse(raw []byte, eventArg string) (event.Event, error) {
 		RawEvent:   raw0,
 		SessionID:  session,
 		ToolUseID:  p.ToolUseID,
-		ToolName:   p.ToolName,
+		ToolName:   toolName(p.ToolName),
 		Cwd:        cwd,
 		Transcript: p.TranscriptPath,
 		Prompt:     p.Prompt,
@@ -184,3 +180,12 @@ func (Adapter) Feedback(event.Event, string, string) []byte { return nil }
 // CanAsk: preToolUse accepts "ask" but does not act on it today, so the
 // call would run ("ask is accepted by the schema but not enforced").
 func (Adapter) CanAsk() bool { return false }
+
+// toolName maps Cursor's tool names to provguard's where they differ.
+// Cursor's Shell runs PowerShell on Windows and the user's shell elsewhere.
+func toolName(n string) string {
+	if n == "Shell" {
+		return event.ShellTool
+	}
+	return n
+}
