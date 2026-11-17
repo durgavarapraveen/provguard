@@ -74,12 +74,12 @@ func TestCopilotInstalledByInit(t *testing.T) {
 	home, settings := t.TempDir(), filepath.Join(t.TempDir(), "settings.json")
 	var out bytes.Buffer
 	r := installRun{settings: settings, home: home, exe: filepath.Join(home, "pg.exe"), write: true, out: &out, errOut: &out}
-	if code := r.init(); code != 0 || !strings.Contains(out.String(), "GitHub Copilot is protected too") {
+	if code := r.init(); code != 0 || !strings.Contains(out.String(), "GitHub Copilot (VS Code, Copilot app, Copilot CLI) is protected too") {
 		t.Fatalf("init %d:\n%s", code, out.String())
 	}
 	out.Reset()
 	u := installRun{settings: settings, home: home, write: true, now: true, out: &out, errOut: &out}
-	if u.uninstall(); !strings.Contains(out.String(), "Removed provguard's GitHub Copilot hooks") {
+	if u.uninstall(); !strings.Contains(out.String(), "Removed provguard's GitHub Copilot") {
 		t.Errorf("uninstall:\n%s", out.String())
 	}
 }

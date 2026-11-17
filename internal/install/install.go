@@ -240,7 +240,23 @@ func CopyBinary(src, home string) (string, error) {
 	return dst, nil
 }
 
+// add installs Claude Code hooks: one command per event, every tool.
 func add(s map[string]any, exe string, events []string) error {
+	return AddHooks(s, events, func(ev string) map[string]any {
+		return map[string]any{"type": "command", "command": Command(exe, ev), "timeout": HookTimeoutSeconds}
+	}, func(ev string) string {
+		if toolEvents[ev] {
+			return "*"
+		}
+		return ""
+	})
+}
+
+// AddHooks writes provguard's hooks into a Claude-style "hooks" map, the
+// format Claude Code and Codex share: event → [{matcher, hooks: [entry]}].
+// It first removes provguard's earlier hooks, and keeps everyone else's.
+// matcher returns "" for "no matcher" (the event's default: everything).
+func AddHooks(s map[string]any, events []string, entry func(ev string) map[string]any, matcher func(ev string) string) error {
 	Remove(s)
 	hooks, ok := s["hooks"].(map[string]any)
 	if !ok {
@@ -251,15 +267,9 @@ func add(s map[string]any, exe string, events []string) error {
 		s["hooks"] = hooks
 	}
 	for _, ev := range events {
-		group := map[string]any{
-			"hooks": []any{map[string]any{
-				"type":    "command",
-				"command": Command(exe, ev),
-				"timeout": HookTimeoutSeconds,
-			}},
-		}
-		if toolEvents[ev] {
-			group["matcher"] = "*"
+		group := map[string]any{"hooks": []any{entry(ev)}}
+		if m := matcher(ev); m != "" {
+			group["matcher"] = m
 		}
 		existing, _ := hooks[ev].([]any)
 		hooks[ev] = append(existing, group)
@@ -270,11 +280,16 @@ func add(s map[string]any, exe string, events []string) error {
 // Save backs up the old file (if any) and writes s atomically.
 // It returns the backup path, or "" when there was no old file.
 func Save(path string, s map[string]any) (string, error) {
-	b, err := json.MarshalIndent(s, "", "  ")
-	if err != nil {
+	// No HTML escaping: people read and edit these files by hand, and
+	// hook commands contain & (PowerShell) and < >.
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(s); err != nil { // Encode adds the final newline
 		return "", err
 	}
-	b = append(b, '\n')
+	b := buf.Bytes()
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return "", err
 	}

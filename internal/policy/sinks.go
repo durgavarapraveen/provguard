@@ -51,6 +51,19 @@ func ToolSinks(e event.Event, cfg config.Config) ([]shell.Sink, string) {
 		}
 		return []shell.Sink{{Class: shell.Persist, Detail: "path:" + where, Target: p}}, text
 
+	case e.ToolName == "apply_patch":
+		// Codex's file edits: the adapter lists the files in "path".
+		files, _ := e.ToolInput["path"].([]any)
+		var sinks []shell.Sink
+		for _, f := range files {
+			p, _ := f.(string)
+			if where := shell.PersistPath(p); where != "" {
+				sinks = append(sinks, shell.Sink{Class: shell.Persist, Detail: "path:" + where, Target: p})
+			}
+		}
+		patch, _ := e.ToolInput["command"].(string)
+		return sinks, patch
+
 	case e.ToolName == "Delete":
 		// Cursor's file delete tool. Inside the project it is ordinary
 		// work; riskyDestroy and the untrusted rule decide like for rm.
