@@ -31,6 +31,7 @@ func TestMain(m *testing.M) {
 	os.Setenv("GEMINI_CLI_HOME", filepath.Join(d, "none-gemini"))
 	os.Setenv("PROVGUARD_KIRO_HOME", filepath.Join(d, "none-kiro"))
 	os.Setenv("PROVGUARD_FACTORY_HOME", filepath.Join(d, "none-factory"))
+	os.Setenv("PROVGUARD_OPENCODE_HOME", filepath.Join(d, "none-opencode"))
 	code := m.Run()
 	os.RemoveAll(d)
 	os.Exit(code)

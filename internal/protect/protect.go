@@ -148,6 +148,23 @@ func factoryHooks(segs []string) bool {
 	return hooksDirOf(segs, ".factory") || n >= 2 && segMatch(segs[n-2], ".factory") && segMatch(segs[n-1], "hooks.json")
 }
 
+// opencodeConfig: an OpenCode config file (opencode.json[c] can disable a
+// plugin with "-provguard"), a plugins folder (any plugin runs code in
+// OpenCode and can undo provguard's), or the folder holding them: .opencode
+// in a project, .config/opencode for the user.
+func opencodeConfig(segs []string) bool {
+	n := len(segs)
+	if segMatch(segs[n-1], "opencode.json") || segMatch(segs[n-1], "opencode.jsonc") {
+		return true
+	}
+	for i, s := range segs {
+		if segMatch(s, ".opencode") || segMatch(s, "opencode") && i > 0 && segMatch(segs[i-1], ".config") {
+			return i == n-1 || segMatch(segs[i+1], "plugins") || segMatch(segs[i+1], "plugin")
+		}
+	}
+	return false
+}
+
 // hooksDirOf: a <agentDir>/hooks folder or a file in it, for agents that
 // keep one file per hook set there (.copilot/hooks, .kiro/hooks). Every file
 // there is a hook configuration, provguard's included, and one can disable
@@ -245,6 +262,8 @@ func protectedPath(p, op, home, cwd string, cds []string) string {
 			return "Copilot's hook configuration"
 		case factoryHooks(segs):
 			return "Factory Droid's hook configuration"
+		case opencodeConfig(segs):
+			return "OpenCode's plugins or configuration"
 		case hooksDirOf(segs, ".kiro"):
 			return "Kiro's hook configuration"
 		case codexConfig(segs) || segMatch(last, ".codex"):
@@ -514,6 +533,7 @@ var protectedText = regexp.MustCompile(`(?i)` + strings.Join([]string{
 	`\.?devin[\\/]+(?:config|hooks\.v1)`,           // Devin config and hooks
 	`\.kiro[\\/]+hooks`,                            // Kiro hook files
 	`\.factory[\\/]+(?:hooks|settings)`,            // Factory Droid hooks and settings
+	`opencode[\\/]+plugins?\b|opencode\.jsonc?\b`,  // OpenCode plugins and config
 	`read_config_from`,                             // Devin's switch for the Claude Code hooks
 	`\.codex[\\/]+(?:config|hooks|requirements)\.`, // Codex hook settings
 	`\.provguard\b`,

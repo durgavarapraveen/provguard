@@ -19,18 +19,20 @@ import (
 	"github.com/durgavarapraveen/provguard/internal/adapter/droid"
 	"github.com/durgavarapraveen/provguard/internal/adapter/gemini"
 	"github.com/durgavarapraveen/provguard/internal/adapter/kiro"
+	"github.com/durgavarapraveen/provguard/internal/adapter/opencode"
 )
 
 // adapters in detection order: agents with a distinctive payload first,
 // Claude Code (which accepts any JSON object) last.
 var adapters = []core.Adapter{
 	cursor.Adapter{},
-	devin.Adapter{},   // Devin (formerly Windsurf) also runs the Claude Code hooks
-	copilot.Adapter{}, // never detected; named by its hooks (--agent copilot)
-	codex.Adapter{},   // never detected; named by its hooks (--agent codex)
-	droid.Adapter{},   // never detected; named by its hooks (--agent factory-droid)
-	gemini.Adapter{},  // never detected; named by its hooks (--agent gemini-cli)
-	kiro.Adapter{},    // never detected; named by its hooks (--agent kiro)
+	devin.Adapter{},    // Devin (formerly Windsurf) also runs the Claude Code hooks
+	copilot.Adapter{},  // never detected; named by its hooks (--agent copilot)
+	codex.Adapter{},    // never detected; named by its hooks (--agent codex)
+	droid.Adapter{},    // never detected; named by its hooks (--agent factory-droid)
+	gemini.Adapter{},   // never detected; named by its hooks (--agent gemini-cli)
+	kiro.Adapter{},     // never detected; named by its hooks (--agent kiro)
+	opencode.Adapter{}, // never detected; named by its plugin (--agent opencode)
 	claudecode.Adapter{},
 }
 
