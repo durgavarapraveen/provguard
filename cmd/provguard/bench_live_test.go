@@ -18,6 +18,8 @@ func TestMain(m *testing.M) {
 		fakeAgent()
 		os.Exit(0)
 	}
+	// Tests never change the real PATH: they get an in-memory one.
+	userPath = fakeUserPath(map[string]bool{})
 	os.Exit(m.Run())
 }
 

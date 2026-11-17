@@ -6,7 +6,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/durgavarapraveen/provguard/internal/adapter/claudecode"
@@ -93,6 +92,7 @@ func (r installRun) init() int {
 	}
 	before := install.HooksJSON(s)
 	cfg, cfgErr := config.Load(r.home)
+	addPath := false
 
 	if r.interactive {
 		if cfgErr != nil {
@@ -100,6 +100,10 @@ func (r installRun) init() int {
 		}
 		g := newGuide(r.in, r.out)
 		choice := askSetup(g, cfg, r.detectUser)
+		if r.copyBinary && !userPath.has(r.binDir()) {
+			fmt.Fprintln(r.out)
+			addPath = g.confirm("Add provguard to your PATH, so the provguard command works in any folder?", true)
+		}
 		fmt.Fprintf(r.out, "\nprovguard will add its hooks to %s (a backup is kept).\n", r.settings)
 		if !g.confirm("Install now?", true) {
 			fmt.Fprintln(r.out, "Nothing changed.")
@@ -136,9 +140,13 @@ func (r installRun) init() int {
 		return r.fail(err)
 	}
 	_ = os.Remove(pendingPath(r.home)) // installed again: no uninstall in progress
+	pathNote := r.pathNote(addPath)
 	if r.interactive {
-		r.summary(cfg)
+		r.summary(cfg, pathNote)
 		return 0
+	}
+	if pathNote != "" {
+		fmt.Fprintln(r.out, pathNote)
 	}
 	fmt.Fprintln(r.out, "Installed binary:", target)
 	if opts.FailClosed {
@@ -152,9 +160,12 @@ func (r installRun) init() int {
 }
 
 // summary tells a new user what is now on and the three commands they need.
-func (r installRun) summary(cfg config.Config) {
+func (r installRun) summary(cfg config.Config, pathNote string) {
 	p := cfg.ProfileName()
 	fmt.Fprintf(r.out, "\n✔ provguard is on. Mode: %s (%s).\n", p, config.Describe(p))
+	if pathNote != "" {
+		fmt.Fprintln(r.out, pathNote)
+	}
 	for _, f := range doctor.HookIntegrity(doctor.Options{Home: r.home, UserSettings: r.settings, Events: claudecode.Events}) {
 		if f.Severity == "HIGH" || f.Severity == "MED" {
 			fmt.Fprintf(r.out, "  ! %s\n", f.Message)
@@ -239,7 +250,7 @@ func (r installRun) finishNow() int {
 		return 1
 	}
 	fmt.Fprintln(r.out, "Removed", r.home+".")
-	pathHint(r.out, r.home)
+	removeFromPath(r.out, r.home)
 	return 0
 }
 
@@ -250,15 +261,35 @@ func (r installRun) dataNote() string {
 	return r.home
 }
 
-// pathHint tells the user to take provguard's folder off PATH, if it is on it.
-func pathHint(w io.Writer, home string) {
-	bin := filepath.Join(home, "bin")
-	for _, d := range filepath.SplitList(os.Getenv("PATH")) {
-		if strings.EqualFold(filepath.Clean(d), filepath.Clean(bin)) {
-			fmt.Fprintln(w, "Also take", bin, "off your PATH.")
-			return
-		}
+func (r installRun) binDir() string { return filepath.Join(r.home, "bin") }
+
+// pathNote puts the provguard folder on PATH when the user agreed, and says
+// what happened. Without a terminal (init --yes) it only says how.
+func (r installRun) pathNote(add bool) string {
+	if !r.copyBinary || userPath.has(r.binDir()) {
+		return ""
 	}
+	if add {
+		where, err := userPath.add(r.binDir())
+		if err == nil {
+			return "✔ Added " + r.binDir() + " to " + where + ". Open a new terminal to use the provguard command."
+		}
+		fmt.Fprintln(r.errOut, "provguard: could not change PATH:", err)
+	}
+	return "To use the provguard command in any folder, add " + r.binDir() + " to your PATH."
+}
+
+// removeFromPath takes provguard's folder off the user's PATH (uninstall).
+func removeFromPath(w io.Writer, home string) {
+	bin := filepath.Join(home, "bin")
+	if !userPath.has(bin) {
+		return
+	}
+	if err := userPath.remove(bin); err != nil {
+		fmt.Fprintln(w, "Take", bin, "off your PATH yourself; provguard could not:", err)
+		return
+	}
+	fmt.Fprintln(w, "Removed", bin, "from your PATH.")
 }
 
 func isTerminal(f *os.File) bool {

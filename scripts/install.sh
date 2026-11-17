@@ -68,7 +68,8 @@ if [ -n "${PROVGUARD_DIST:-}" ]; then
   cp "$PROVGUARD_DIST/provguard_${version}_${os}_${arch}${ext}" "$tmp/"
 else
   if [ -z "$version" ]; then
-    fetch "https://api.github.com/repos/$repo/releases/latest" "$tmp/latest.json"
+    fetch "https://api.github.com/repos/$repo/releases/latest" "$tmp/latest.json" 2>/dev/null ||
+      fail "no provguard release found at github.com/$repo/releases (or GitHub cannot be reached); try again later, or build from source: go install github.com/$repo/cmd/provguard@latest"
     version="$(sed -n 's/.*"tag_name": *"v\{0,1\}\([^"]*\)".*/\1/p' "$tmp/latest.json" | head -n 1)"
     [ -n "$version" ] || fail "could not find the latest release"
   fi
@@ -104,10 +105,3 @@ else
   "$bin" init --yes
 fi
 
-say ""
-say "To run provguard commands from any folder, add it to your PATH:"
-if [ "$os" = windows ]; then
-  say "  export PATH=\"\$HOME/.provguard/bin:\$PATH\"   (Git Bash; for PowerShell use install.ps1)"
-else
-  say "  export PATH=\"\$HOME/.provguard/bin:\$PATH\"   (add this line to ~/.zshrc or ~/.bashrc)"
-fi
