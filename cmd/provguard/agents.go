@@ -6,6 +6,7 @@ import (
 
 	"github.com/durgavarapraveen/provguard/internal/adapter/codex"
 	"github.com/durgavarapraveen/provguard/internal/adapter/copilot"
+	"github.com/durgavarapraveen/provguard/internal/adapter/gemini"
 	"github.com/durgavarapraveen/provguard/internal/install"
 )
 
@@ -33,6 +34,12 @@ var otherAgents = []otherAgent{
 		install:   codex.Install,
 		uninstall: codex.Uninstall,
 		after:     "In Codex, run /hooks once and trust provguard's hooks: Codex skips new hooks until you do.",
+	},
+	{
+		name:      "Gemini CLI",
+		present:   gemini.Present,
+		install:   gemini.Install,
+		uninstall: gemini.Uninstall,
 	},
 }
 
