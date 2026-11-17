@@ -17,7 +17,6 @@ package gemini
 
 import (
 	"encoding/json"
-	"errors"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -154,11 +153,7 @@ func Install(exe string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	s, err := install.Load(p)
-	if err != nil {
-		return "", err
-	}
-	err = install.AddHooks(s, Events, func(ev string) map[string]any {
+	return p, install.AddHooksFile(p, true, Events, func(ev string) map[string]any {
 		return map[string]any{
 			"type": "command", "name": "provguard-" + strings.ToLower(ev), "command": core.HookCommandHere(exe, Agent, ev),
 			"timeout": install.HookTimeoutSeconds * 1000, // milliseconds
@@ -169,11 +164,6 @@ func Install(exe string) (string, error) {
 		}
 		return ""
 	})
-	if err != nil {
-		return "", err
-	}
-	_, err = install.Save(p, s)
-	return p, err
 }
 
 // Uninstall removes provguard's hooks from Gemini CLI's settings.json. It
@@ -183,16 +173,5 @@ func Uninstall() (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	if _, err := os.Stat(p); errors.Is(err, os.ErrNotExist) {
-		return false, nil
-	}
-	s, err := install.Load(p)
-	if err != nil {
-		return false, err
-	}
-	if install.Remove(s) == 0 {
-		return false, nil
-	}
-	_, err = install.Save(p, s)
-	return err == nil, err
+	return install.RemoveHooksFile(p, true)
 }
