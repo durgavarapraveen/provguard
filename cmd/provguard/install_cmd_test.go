@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -81,7 +82,8 @@ func TestGuidedInitChoicesAndRetry(t *testing.T) {
 func TestGuidedInitDeclineChangesNothing(t *testing.T) {
 	home := t.TempDir()
 	settings := filepath.Join(t.TempDir(), "settings.json")
-	code, out := guided(t, home, settings, "none\n2\nn\n")
+	// Owner, Watch only, Enter on the agent question (all), then decline.
+	code, out := guided(t, home, settings, "none\n2\n\nn\n")
 	if code != 0 || !strings.Contains(out, "Nothing changed") {
 		t.Fatalf("code %d: %s", code, out)
 	}
@@ -90,6 +92,31 @@ func TestGuidedInitDeclineChangesNothing(t *testing.T) {
 	}
 	if _, err := os.Stat(settings); !os.IsNotExist(err) {
 		t.Error("settings written after decline")
+	}
+}
+
+// Choosing only other agents leaves Claude Code's settings alone.
+func TestGuidedInitWithoutClaudeCode(t *testing.T) {
+	home := t.TempDir()
+	settings := filepath.Join(t.TempDir(), "settings.json")
+	agentHome := t.TempDir()
+	t.Setenv("PROVGUARD_OPENCODE_HOME", agentHome)
+	n := 0
+	for i, a := range otherAgents {
+		if a.name == "OpenCode" {
+			n = i + 2 // Claude Code is 1
+		}
+	}
+	// Owner, Watch only, a wrong answer, then OpenCode only; install.
+	code, out := guided(t, home, settings, "none\n2\n0\n"+strconv.Itoa(n)+"\ny\n")
+	if code != 0 || !strings.Contains(out, "Please type all") || !strings.Contains(out, "OpenCode is protected") {
+		t.Fatalf("code %d: %s", code, out)
+	}
+	if _, err := os.Stat(settings); !os.IsNotExist(err) {
+		t.Error("Claude Code settings written although not chosen")
+	}
+	if _, err := os.Stat(filepath.Join(agentHome, "plugins", "provguard.js")); err != nil {
+		t.Error("OpenCode plugin not written:", err)
 	}
 }
 

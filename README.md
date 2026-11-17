@@ -37,6 +37,15 @@ provguard setup: 3 short questions. Press Enter to take the default.
 
 Add provguard to your PATH, so the provguard command works in any folder? (Y/n)
 
+Which coding agents should provguard protect?
+  all) Claude Code and every agent found below
+  1) Claude Code (also Cursor and Devin)  (found)
+  2) GitHub Copilot (VS Code, Copilot app, Copilot CLI)
+  3) OpenAI Codex  (found)
+  ...
+  10) Antigravity (app, CLI and IDE)  (found)
+Type all, or numbers separated by commas [all]: 1,3,10
+
 ✔ provguard is on. Mode: balanced (protect: stops leaks, asks before risky steps).
 ✔ Added ~/.provguard/bin to your user PATH. Open a new terminal to use the provguard command.
 ```

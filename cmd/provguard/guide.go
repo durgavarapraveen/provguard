@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os/exec"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -56,6 +57,53 @@ func (g guide) confirm(q string, def bool) bool {
 		fmt.Fprintln(g.w, "  Please answer y or n.")
 	}
 	return def
+}
+
+// askAgents asks which coding agents to protect. Claude Code is option 1
+// (Cursor and Devin run its hooks); the others follow in otherAgents order.
+// The default, "all", is Claude Code plus every agent found on this computer.
+func askAgents(g guide, agents []otherAgent) (claude bool, chosen []otherAgent) {
+	found := func(ok bool) string {
+		if ok {
+			return "  (found)"
+		}
+		return ""
+	}
+	fmt.Fprintln(g.w, "Which coding agents should provguard protect?")
+	fmt.Fprintln(g.w, "  all) Claude Code and every agent found below")
+	fmt.Fprintf(g.w, "  1) Claude Code (also Cursor and Devin)%s\n", found(true))
+	for i, a := range agents {
+		fmt.Fprintf(g.w, "  %d) %s%s\n", i+2, a.name, found(a.present()))
+	}
+	for range 3 {
+		ans := strings.ToLower(g.line("Type all, or numbers separated by commas", "all"))
+		if ans == "all" {
+			for _, a := range agents {
+				if a.present() {
+					chosen = append(chosen, a)
+				}
+			}
+			return true, chosen
+		}
+		claude, chosen = false, nil
+		ok := true
+		for _, f := range strings.FieldsFunc(ans, func(r rune) bool { return r == ',' || r == ' ' }) {
+			n, err := strconv.Atoi(f)
+			switch {
+			case err != nil || n < 1 || n > len(agents)+1:
+				ok = false
+			case n == 1:
+				claude = true
+			case !slices.ContainsFunc(chosen, func(a otherAgent) bool { return a.name == agents[n-2].name }):
+				chosen = append(chosen, agents[n-2])
+			}
+		}
+		if ok && (claude || len(chosen) > 0) {
+			return claude, chosen
+		}
+		fmt.Fprintf(g.w, "  Please type all, or numbers from 1 to %d (for example 1,3).\n", len(agents)+1)
+	}
+	return false, nil
 }
 
 // choose shows numbered options and returns the index picked (0-based).
