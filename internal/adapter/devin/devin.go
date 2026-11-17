@@ -83,8 +83,8 @@ func (Adapter) Parse(raw []byte, eventArg string) (event.Event, error) {
 }
 
 // Reply uses Devin's decision fields; the reason is shown to the agent.
-func (Adapter) Reply(d core.Decision, reason string) ([]byte, error) {
-	return json.Marshal(map[string]string{"decision": "block", "reason": reason})
+func (Adapter) Reply(d core.Decision, reason string) (core.Response, error) {
+	return core.JSONResponse(map[string]string{"decision": "block", "reason": reason})
 }
 
 // Feedback: Devin's hook output reaches the agent, not the user.

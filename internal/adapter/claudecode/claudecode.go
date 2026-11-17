@@ -113,8 +113,9 @@ func (Adapter) Detect(raw []byte) bool { return json.Valid(raw) }
 
 func (Adapter) Parse(raw []byte, eventArg string) (event.Event, error) { return Parse(raw, eventArg) }
 
-func (Adapter) Reply(d core.Decision, reason string) ([]byte, error) {
-	return PreToolResponse(d, reason)
+func (Adapter) Reply(d core.Decision, reason string) (core.Response, error) {
+	b, err := PreToolResponse(d, reason)
+	return core.Response{Stdout: b}, err
 }
 
 func (Adapter) CanAsk() bool { return true }

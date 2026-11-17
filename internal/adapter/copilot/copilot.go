@@ -18,7 +18,6 @@ package copilot
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
 
@@ -67,8 +66,8 @@ func (Adapter) Parse(raw []byte, eventArg string) (event.Event, error) {
 }
 
 // Reply uses Copilot's preToolUse output. The reason is required for deny.
-func (Adapter) Reply(d core.Decision, reason string) ([]byte, error) {
-	return json.Marshal(map[string]string{"permissionDecision": string(d), "permissionDecisionReason": reason})
+func (Adapter) Reply(d core.Decision, reason string) (core.Response, error) {
+	return core.JSONResponse(map[string]string{"permissionDecision": string(d), "permissionDecisionReason": reason})
 }
 
 // Feedback: Copilot's command hooks have no user notice or session title.
@@ -119,19 +118,12 @@ type hookEntry struct {
 }
 
 // Config returns provguard's hook file for Copilot, running exe. Copilot
-// runs bash on macOS and Linux and PowerShell on Windows, which needs the
-// call operator (&) to run a quoted program path.
+// runs bash on macOS and Linux and PowerShell on Windows.
 func Config(exe string, timeoutSec int) ([]byte, error) {
-	exe = filepath.ToSlash(exe)
 	f := hookFile{Version: 1, Hooks: map[string][]hookEntry{}}
 	for _, ev := range Events {
-		args := fmt.Sprintf("hook --agent %s %s", Agent, ev)
-		f.Hooks[ev] = []hookEntry{{
-			Type:       "command",
-			Bash:       fmt.Sprintf("%q %s", exe, args),
-			PowerShell: fmt.Sprintf("& %q %s", exe, args),
-			TimeoutSec: timeoutSec,
-		}}
+		bash, powershell := core.HookCommand(exe, Agent, ev)
+		f.Hooks[ev] = []hookEntry{{Type: "command", Bash: bash, PowerShell: powershell, TimeoutSec: timeoutSec}}
 	}
 	b, err := json.MarshalIndent(f, "", "  ")
 	return append(b, '\n'), err
