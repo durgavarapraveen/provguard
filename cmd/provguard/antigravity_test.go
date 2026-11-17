@@ -41,7 +41,12 @@ func TestAntigravityScenarios(t *testing.T) {
 		"TargetFile": filepath.Join(s.home, ".gemini", "config", "hooks.json"), "CodeContent": "{}"})); !strings.Contains(out, `"deny"`) {
 		t.Errorf("write to Antigravity's hooks.json not denied: %s", out)
 	}
-	if out := antigravityCall(t, s, "PreToolUse", call("run_command", map[string]any{"CommandLine": "go test ./..."})); strings.TrimSpace(out) != "{}" {
-		t.Errorf("normal command: %s, want {}", out)
+	// Antigravity denies a tool call whose hook gives no decision: a normal
+	// command must get "allow" (found in a live test).
+	if out := antigravityCall(t, s, "PreToolUse", call("run_command", map[string]any{"CommandLine": "go test ./..."})); strings.TrimSpace(out) != `{"decision":"allow"}` {
+		t.Errorf("normal command: %s, want an allow", out)
+	}
+	if out := antigravityCall(t, s, "PostToolUse", call("run_command", map[string]any{"CommandLine": "go test ./..."})); strings.TrimSpace(out) != "{}" {
+		t.Errorf("PostToolUse: %s, want {}", out)
 	}
 }

@@ -79,7 +79,7 @@ func TestInstallKeepsSettings(t *testing.T) {
 	}
 	bt := s.Hooks["BeforeTool"]
 	if s.Theme != "Dracula" || len(s.Hooks["AfterAgent"]) != 1 || len(bt) != 1 || bt[0].Matcher != ".*" ||
-		bt[0].Hooks[0].Command != "/home/u/.provguard/bin/provguard hook --agent gemini-cli BeforeTool" || bt[0].Hooks[0].Timeout != 10000 {
+		bt[0].Hooks[0].Command != core.HookCommandHere("/home/u/.provguard/bin/provguard", Agent, "BeforeTool") || bt[0].Hooks[0].Timeout != 10000 {
 		t.Errorf("settings:\n%s", b)
 	}
 	if removed, err := Uninstall(); !removed || err != nil {

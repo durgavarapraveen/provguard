@@ -3,11 +3,13 @@ package install
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
 
-const exe = `C:\tools\provguard.exe`
+// exe is a provguard binary path in the platform's own form.
+var exe = map[bool]string{true: `C:\tools\provguard.exe`, false: "/opt/tools/provguard"}[runtime.GOOS == "windows"]
 
 var events = []string{"PreToolUse", "PostToolUse", "SessionStart", "UserPromptSubmit"}
 

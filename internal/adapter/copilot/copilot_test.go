@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/durgavarapraveen/provguard/internal/adapter/core"
@@ -46,7 +47,11 @@ func TestReply(t *testing.T) {
 
 func TestInstallAndUninstall(t *testing.T) {
 	t.Setenv("COPILOT_HOME", t.TempDir())
-	p, err := Install(`C:\Users\me\.provguard\bin\provguard.exe`, 10)
+	exe, slashed := "/home/me/.provguard/bin/provguard", "/home/me/.provguard/bin/provguard"
+	if runtime.GOOS == "windows" { // backslashes become forward slashes
+		exe, slashed = `C:\Users\me\.provguard\bin\provguard.exe`, "C:/Users/me/.provguard/bin/provguard.exe"
+	}
+	p, err := Install(exe, 10)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,8 +61,8 @@ func TestInstallAndUninstall(t *testing.T) {
 		t.Fatalf("hook file %s", b)
 	}
 	h := f.Hooks["PreToolUse"][0]
-	if h.Bash != `"C:/Users/me/.provguard/bin/provguard.exe" hook --agent copilot PreToolUse` ||
-		h.PowerShell != `C:/Users/me/.provguard/bin/provguard.exe hook --agent copilot PreToolUse` || h.TimeoutSec != 10 {
+	if h.Bash != `"`+slashed+`" hook --agent copilot PreToolUse` ||
+		h.PowerShell != slashed+` hook --agent copilot PreToolUse` || h.TimeoutSec != 10 {
 		t.Errorf("entry %+v", h)
 	}
 	if filepath.Base(p) != FileName {

@@ -157,16 +157,20 @@ func (Adapter) Reply(d core.Decision, reason string) (core.Response, error) {
 	return core.JSONResponse(map[string]string{"decision": decision, "reason": reason})
 }
 
-// Feedback: Antigravity has no hook channel for a notice to the user, but
-// every hook must print JSON.
-func (Adapter) Feedback(event.Event, string, string) []byte { return EmptyReply() }
+// Feedback: Antigravity has no hook channel for a notice to the user.
+func (Adapter) Feedback(event.Event, string, string) []byte { return nil }
 
-// EmptyReply is what a call prints when provguard has no decision: an empty
-// object, which lets Antigravity's own permission rules decide.
-func (Adapter) EmptyReply() []byte { return EmptyReply() }
-
-// EmptyReply is the JSON object printed when there is nothing to say.
-func EmptyReply() []byte { return []byte("{}\n") }
+// EmptyReply is what a call prints when provguard has no decision. A
+// PreToolUse reply without a decision counts as a denial, so it says
+// "allow", which hands the call to the next hook and Antigravity's own
+// permission rules (it approves nothing by itself). Other events take an
+// empty object.
+func (Adapter) EmptyReply(eventName string) []byte {
+	if eventName == "PreToolUse" {
+		return []byte(`{"decision":"allow"}` + "\n")
+	}
+	return []byte("{}\n")
+}
 
 // Probe: a write_to_file in Antigravity's camelCase format.
 func (Adapter) Probe(path string) (string, []byte) {

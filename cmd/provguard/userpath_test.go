@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -27,6 +28,12 @@ func withFakePath(t *testing.T) map[string]bool {
 }
 
 func TestPathList(t *testing.T) {
+	if pathListHas("/usr/bin:/Opt/pg", "/opt/pg", ":", false) {
+		t.Error("unix PATH is case-sensitive")
+	}
+	if runtime.GOOS != "windows" {
+		return // the cases below use Windows paths
+	}
 	list := `C:\Windows;%USERPROFILE%\bin;;C:\Tools\`
 	if !pathListHas(list, `c:\tools`, ";", true) || pathListHas(list, `C:\Tool`, ";", true) {
 		t.Error("has")
@@ -42,9 +49,6 @@ func TestPathList(t *testing.T) {
 	}
 	if got := pathListRemove(`C:\a;C:\pg\bin;C:\b;C:\PG\bin\`, `C:\pg\bin`, ";", true); got != `C:\a;C:\b` {
 		t.Errorf("remove: %q", got)
-	}
-	if pathListHas("/usr/bin:/Opt/pg", "/opt/pg", ":", false) {
-		t.Error("unix PATH is case-sensitive")
 	}
 }
 
