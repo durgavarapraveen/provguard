@@ -148,7 +148,8 @@ Method, per-case results and caveats (the traces are author-written; real-agent 
 | Gemini CLI | Yes: `provguard init` adds provguard to `~/.gemini/settings.json` when it finds Gemini CLI. Gemini CLI hooks can only allow or deny, so provguard blocks where it would ask, and offers `provguard allow`. Not tested live yet. |
 | Devin Desktop (formerly Windsurf) and Devin CLI | Yes, through Devin's support for Claude Code hooks (`read_config_from.claude`, on by default); provguard guards that switch. Devin hooks can only approve or block, so provguard blocks where it would ask. Not tested live yet. |
 | Kiro (IDE and CLI V3) | Yes: `provguard init` adds `~/.kiro/hooks/provguard.json` when it finds Kiro. Kiro blocks a tool call only on a hook's non-zero exit, which provguard uses; it has no "ask", so provguard blocks there and offers `provguard allow`. Not tested live yet. |
-| Antigravity, Factory Droid, OpenCode | Not yet (planned adapters) |
+| Factory Droid (CLI and IDE) | Yes: `provguard init` adds hooks to `~/.factory/hooks.json` when it finds Droid, keeping other hooks there. Droid's "ask" does not prompt, so provguard blocks there and offers `provguard allow`; self-protection covers `.factory` hooks and settings. Not tested live yet. |
+| Antigravity, OpenCode | Not yet (planned adapters) |
 
 Each agent has a small adapter in `internal/adapter/<agent>` that implements `core.Adapter`; the checks themselves are shared.
 

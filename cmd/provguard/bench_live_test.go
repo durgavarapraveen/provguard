@@ -30,6 +30,7 @@ func TestMain(m *testing.M) {
 	os.Setenv("CODEX_HOME", filepath.Join(d, "none-codex"))
 	os.Setenv("GEMINI_CLI_HOME", filepath.Join(d, "none-gemini"))
 	os.Setenv("PROVGUARD_KIRO_HOME", filepath.Join(d, "none-kiro"))
+	os.Setenv("PROVGUARD_FACTORY_HOME", filepath.Join(d, "none-factory"))
 	code := m.Run()
 	os.RemoveAll(d)
 	os.Exit(code)

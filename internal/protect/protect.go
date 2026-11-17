@@ -87,6 +87,7 @@ const settingsReason = "an agent settings file"
 //   - .copilot/settings.json (Copilot, user level),
 //   - .github/copilot/settings*.json (Copilot, repository level).
 //   - .gemini/settings.json (Gemini CLI, user and project level).
+//   - .factory/settings[.local].json (Factory Droid, user and project level).
 //
 // Segments may be glob patterns from the shell (".cla?de"), so they are
 // matched as patterns against the real names.
@@ -101,7 +102,8 @@ func settingsSegs(segs []string) bool {
 	// A folder computed at run time ("$(echo .claude)/settings.json",
 	// "$D/settings.json") may be any of them.
 	dir := segs[n-2]
-	return segMatch(dir, ".claude") || segMatch(dir, ".copilot") || segMatch(dir, ".gemini") || strings.Contains(dir, "$") ||
+	return segMatch(dir, ".claude") || segMatch(dir, ".copilot") || segMatch(dir, ".gemini") || segMatch(dir, ".factory") ||
+		strings.Contains(dir, "$") ||
 		segMatch(dir, "copilot") && n >= 3 && segMatch(segs[n-3], ".github")
 }
 
@@ -137,6 +139,13 @@ func codexConfig(segs []string) bool {
 		}
 	}
 	return false
+}
+
+// factoryHooks: Factory Droid's .factory/hooks.json, or its legacy
+// .factory/hooks/ folder.
+func factoryHooks(segs []string) bool {
+	n := len(segs)
+	return hooksDirOf(segs, ".factory") || n >= 2 && segMatch(segs[n-2], ".factory") && segMatch(segs[n-1], "hooks.json")
 }
 
 // hooksDirOf: a <agentDir>/hooks folder or a file in it, for agents that
@@ -234,6 +243,8 @@ func protectedPath(p, op, home, cwd string, cds []string) string {
 			return "a .claude directory"
 		case hooksDirOf(segs, ".copilot") || segMatch(last, ".copilot"):
 			return "Copilot's hook configuration"
+		case factoryHooks(segs):
+			return "Factory Droid's hook configuration"
 		case hooksDirOf(segs, ".kiro"):
 			return "Kiro's hook configuration"
 		case codexConfig(segs) || segMatch(last, ".codex"):
@@ -502,6 +513,7 @@ var protectedText = regexp.MustCompile(`(?i)` + strings.Join([]string{
 	`\.gemini[\\/]+settings`,                       // Gemini CLI settings (hooks, hooksConfig)
 	`\.?devin[\\/]+(?:config|hooks\.v1)`,           // Devin config and hooks
 	`\.kiro[\\/]+hooks`,                            // Kiro hook files
+	`\.factory[\\/]+(?:hooks|settings)`,            // Factory Droid hooks and settings
 	`read_config_from`,                             // Devin's switch for the Claude Code hooks
 	`\.codex[\\/]+(?:config|hooks|requirements)\.`, // Codex hook settings
 	`\.provguard\b`,
