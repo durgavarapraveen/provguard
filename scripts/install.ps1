@@ -43,7 +43,11 @@ try {
     } else {
         [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
         if (-not $version) {
-            $version = (Invoke-RestMethod "https://api.github.com/repos/$repo/releases/latest").tag_name -replace '^v', ''
+            try {
+                $version = (Invoke-RestMethod "https://api.github.com/repos/$repo/releases/latest").tag_name -replace '^v', ''
+            } catch {
+                Fail "no provguard release found at github.com/$repo/releases (or GitHub cannot be reached). Try again later, or build from source: go install github.com/$repo/cmd/provguard@latest"
+            }
             if (-not $version) { Fail 'could not find the latest release' }
         }
         $base = "https://github.com/$repo/releases/download/v$version"
@@ -69,12 +73,6 @@ try {
     }
     & $bin init
     if ($LASTEXITCODE -ne 0) { Fail "provguard init failed (exit $LASTEXITCODE)" }
-
-    $dir = Join-Path $HOME '.provguard\bin'
-    Write-Host ''
-    Write-Host 'To run provguard commands from any folder, add it to your user PATH:'
-    Write-Host "  [Environment]::SetEnvironmentVariable('Path', [Environment]::GetEnvironmentVariable('Path','User') + ';$dir', 'User')"
-    Write-Host 'Then open a new terminal.'
 } finally {
     Remove-Item -Recurse -Force $tmp -ErrorAction SilentlyContinue
 }
