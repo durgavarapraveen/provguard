@@ -98,7 +98,7 @@ func runBench(args []string, w io.Writer) int {
 				return 1
 			}
 			benign = append(benign, br)
-			// Target (DESIGN.md 3): fewer than 1 false positive per 100 calls
+			// Target: fewer than 1 false positive per 100 calls
 			// in balanced, and never a deny during normal work.
 			if p == "balanced" && (100*len(br.FP) >= br.Calls || hasDeny(br.FP)) {
 				fpFail = true

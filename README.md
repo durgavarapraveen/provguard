@@ -101,14 +101,17 @@ Regex guards check one command at a time and remember nothing about what the age
 
 1. **Labels (PostToolUse).** Each tool result marks the session:
    - **untrusted:** web fetch/search, `curl`/`wget`/`gh issue view` and similar, third-party MCP servers, vendored dependencies, repos of untrusted owners, subagents that read untrusted content, and sessions started in an untrusted repo;
-   - **sensitive:** `.env`, SSH keys, cloud credentials, environment dumps, tokens in output or in your prompt. Secrets are kept only as HMAC fingerprints.
+   - **sensitive:** `.env`, SSH keys, cloud credentials, environment dumps, tokens in output or in your prompt, and the files in your `sensitive_paths`. Secrets are kept only as HMAC fingerprints;
+   - **hidden text:** any tool output that hides text from you (invisible Unicode tag characters, characters that reorder text, runs of zero-width characters, or an HTML comment or invisible element with instructions to an AI). The session becomes untrusted even if the file comes from a trusted repo, and rules 3 and 4 below block instead of ask.
 2. **Sinks (PreToolUse).** Every Bash and PowerShell command is parsed (Bash with [mvdan.cc/sh](https://github.com/mvdan/sh), PowerShell with a tokenizer) through pipes, subshells, `$(…)`, heredocs, variables and wrappers such as `sudo`, `bash -c`, `python -c`. Each action gets a class: `EGRESS`, `PERSIST`, `DESTROY`, `EXEC_REMOTE` or `OPAQUE`. WebFetch, Write/Edit, MCP write tools and MCP terminal tools are covered too.
 3. **Policy.** First match wins:
 
 | # | Situation | Decision |
 |---|---|---|
 | 1 | The call contains a secret this session has seen (plain, base64, hex, URL-encoded, in a DNS name) | deny |
+| 1c | Data goes to a host in `blocked_hosts` | deny |
 | 2 | Data can leave while the session is both untrusted and sensitive (the "lethal trifecta") | deny |
+| 2b | Your rules, the repo's rules, and the rule packs you turned on | ask or deny, as the rule says |
 | 3 | Data goes to a host or URL taken from untrusted content | ask |
 | 4 | Lasting change, remote code or unreadable code after untrusted input | ask |
 | 5 | Reverse shell, or risky deletion: outside the project, history rewrites on shared branches, remote deletes, `terraform destroy`, cluster-wide `kubectl delete`, `helm uninstall`, cloud deletes (`aws … delete-*`, `gcloud … delete`), container volumes, `DROP TABLE` / `TRUNCATE` / `DELETE` without `WHERE`, `FLUSHALL`, writing a disk with `dd` | ask |
@@ -209,7 +212,55 @@ Run `provguard help` for the full list.
 | `trusted_content_hosts` | `trust-site` | **Receiving**: pages from these hosts do not make a session untrusted. Not for hosts where anyone can publish (`github.com`, paste sites); `provguard doctor` reports those. |
 | `trusted_mcp_servers` | `trust-mcp` | Output from these MCP servers is trusted |
 
-Advanced keys (edit the file by hand): `self_protect` (default `true`), `trust_sdk_mcp_servers` (default `true`), `session_title_icon` (default `true`), `audit_retention_days` (default 30; negative keeps logs forever).
+### Your own rules
+
+Add rules, rule packs, sensitive files and blocked hosts in `config.json`:
+
+```json
+{
+  "rules": [
+    {"name": "prod-apply", "command": "kubectl apply", "match": "--context[ =]prod", "action": "deny", "reason": "production changes go through CI"},
+    {"name": "deploy", "command": "make deploy", "action": "ask"},
+    {"name": "merge", "tool": "mcp__github__merge_*", "action": "ask"}
+  ],
+  "packs": ["terraform", "kubernetes", "aws", "gcloud", "azure"],
+  "sensitive_paths": ["*.tfvars", "secrets/*"],
+  "blocked_hosts": ["pastebin.com"]
+}
+```
+
+- **`command`:** the words a shell command contains, in this order, starting with its name. Flags and other words can come between them, and `*` matches one word (`aws create-*`).
+- **`match`:** a regular expression on the whole command line.
+- **`tool`:** a pattern on the tool name, for tools that are not shell commands, such as MCP tools.
+- **Combining parts:** a rule matches when every part it sets matches.
+- **`action`:** `ask` or `deny`. The mode still applies: Watch only logs, and Lockdown blocks asks.
+- **Packs** ask before changes to shared infrastructure: `terraform apply`/`import`/`state`, `kubectl apply`/`create`/`patch`/`delete`, `helm install`/`upgrade`, and cloud `create`/`update`/`deploy`/IAM commands.
+- **Order:** these rules come after the built-in blocks, so they can add checks but never hide a leak.
+
+Try a rule with `provguard check "<command>"`.
+
+### Team policy in a repo
+
+Commit `.provguard/policy.json` to a repository to give everyone who works in it the same extra checks:
+
+```json
+{
+  "mode": "balanced",
+  "rules": [{"name": "deploy", "command": "make deploy", "action": "ask"}],
+  "packs": ["terraform"],
+  "sensitive_paths": ["*.tfvars"],
+  "blocked_hosts": ["paste.example.com"]
+}
+```
+
+- **It can only make provguard stricter.** `mode` raises the mode, never lowers it. The lists are added to yours. Keys that would weaken a check (`allowed_hosts`, trusted owners or sites) are not read, because a cloned repository is untrusted.
+- **Where it applies:** commands run in the repository or its subfolders.
+- **Agents cannot change or remove it:** self-protection covers every `.provguard` folder.
+- **`provguard doctor`** reports a repo's policy when it scans the repo.
+
+### Advanced keys
+
+Edit the file by hand: `self_protect` (default `true`), `trust_sdk_mcp_servers` (default `true`), `session_title_icon` (default `true`), `audit_retention_days` (default 30; negative keeps logs forever).
 
 If `config.json` cannot be parsed, or `profile` is misspelled, provguard enforces `balanced` (not `audit`) until you fix it, and `provguard config` and `provguard doctor` report the problem.
 

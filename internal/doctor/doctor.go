@@ -5,6 +5,7 @@ package doctor
 
 import (
 	"encoding/json"
+	"fmt"
 	"github.com/durgavarapraveen/provguard/internal/redact"
 	"os"
 	"path/filepath"
@@ -228,6 +229,14 @@ var invisible = regexp.MustCompile(`[\x{200b}\x{200c}\x{200d}\x{2060}\x{feff}\x{
 // definitions, and the repo's trust status.
 func ScanRepo(repo, home string) []Finding {
 	var out []Finding
+	// A repository policy can only add checks, so it is reported, not feared.
+	if p := config.FindRepoPolicy(repo); p != "" {
+		if rp, err := config.LoadRepoPolicy(p); err != nil {
+			out = append(out, Finding{Medium, "repo policy", redact.OneLine(err.Error(), 200) + " (not applied)"})
+		} else {
+			out = append(out, Finding{Info, "repo policy", fmt.Sprintf("%s adds %d rules, %d packs, %d sensitive paths and %d blocked hosts; mode %q (can only make provguard stricter)", p, len(rp.Rules), len(rp.Packs), len(rp.SensitivePaths), len(rp.BlockedHosts), rp.Mode)})
+		}
+	}
 	for _, name := range instructionFiles {
 		p := filepath.Join(repo, filepath.FromSlash(name))
 		b, err := os.ReadFile(p)
