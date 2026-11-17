@@ -240,7 +240,6 @@ provguard is one layer, not a sandbox. Read [docs/THREAT_MODEL.md](docs/THREAT_M
 - [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md): what provguard protects against, and what it does not
 - [docs/BENCHMARK.md](docs/BENCHMARK.md): attacks, false positives, method
 - [docs/FINDINGS.md](docs/FINDINGS.md): facts about agent hooks found while building this
-- [DESIGN.md](DESIGN.md): original design and plan
 - [SECURITY.md](SECURITY.md): how to report a vulnerability
 
 ## License

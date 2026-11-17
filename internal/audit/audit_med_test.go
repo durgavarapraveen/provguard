@@ -8,8 +8,8 @@ import (
 	"time"
 )
 
-// MED: a policy reason and a sink name quote the call, so a secret in a URL
-// or a command reached the log unredacted.
+// A policy reason and a sink name quote the call, so a secret in a URL or a
+// command must be redacted there too before it reaches the log.
 func TestWriteRedactsReasonAndSinks(t *testing.T) {
 	home := t.TempDir()
 	secret := "sk-ant-api03-ZmFrZUtleUZvclRlc3RzT25see12345678"

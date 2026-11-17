@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"encoding/json"
 	"path/filepath"
 	"strings"
@@ -12,20 +11,16 @@ import (
 // does (`provguard hook --agent antigravity <event>`) and returns stdout.
 func antigravityCall(t *testing.T, s *session, ev string, fields map[string]any) string {
 	t.Helper()
-	p := map[string]any{"conversationId": "agy-1", "workspacePaths": []string{s.home}}
-	for k, v := range fields {
-		p[k] = v
-	}
-	b, _ := json.Marshal(p)
-	var stdout, stderr bytes.Buffer
-	if code := runHookIO(bytes.NewReader(b), &stdout, &stderr, ev, "antigravity"); code != 0 {
+	in := hookInput(map[string]any{"conversationId": "agy-1", "workspacePaths": []string{s.home}}, fields)
+	code, stdout, _ := hookIO(in, ev, "antigravity")
+	if code != 0 {
 		t.Errorf("%s exit %d: Antigravity blocks every call whose hook fails", ev, code)
 	}
 	var v map[string]any
-	if err := json.Unmarshal(stdout.Bytes(), &v); err != nil {
-		t.Errorf("%s: stdout %q is not a JSON object", ev, stdout.String())
+	if err := json.Unmarshal([]byte(stdout), &v); err != nil {
+		t.Errorf("%s: stdout %q is not a JSON object", ev, stdout)
 	}
-	return stdout.String()
+	return stdout
 }
 
 func call(name string, args map[string]any) map[string]any {

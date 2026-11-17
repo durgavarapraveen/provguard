@@ -60,7 +60,7 @@ func TestShell(t *testing.T) {
 		{`go test ./...`, false},
 		{`echo hello > out.txt`, false},
 		{`echo "run provguard init to install"`, false},
-		// regression: false positive seen live on 2026-11-16
+		// a commit message that mentions the settings is not a write
 		{`git commit -q -m "protect: deny changes to hooks/disableAllHooks in .claude/settings*.json"`, false},
 		{`git log --grep disableAllHooks`, false},
 	}
@@ -119,7 +119,7 @@ func TestWriteAndEditSettings(t *testing.T) {
 		{"edit model", pre("Edit", map[string]any{"file_path": p, "old_string": `"model":"x"`, "new_string": `"model":"y"`}), false},
 		{"edit removes hook", pre("Edit", map[string]any{"file_path": p, "old_string": `"provguard hook PreToolUse"`, "new_string": `"true"`}), true},
 		{"edit adds disable", pre("Edit", map[string]any{"file_path": p, "old_string": `"model":"x"`, "new_string": `"model":"x","disableAllHooks":true`}), true},
-		// Review: an Edit provguard cannot verify is denied on settings files.
+		// An Edit provguard cannot verify is denied on settings files.
 		{"edit no match", pre("Edit", map[string]any{"file_path": p, "old_string": "nope", "new_string": "x"}), true},
 		{"windows path case", pre("Write", map[string]any{"file_path": filepath.Join(dir, "SETTINGS.LOCAL.JSON"), "content": `{"disableAllHooks":true}`}), true},
 		{"new project settings w/o hooks", pre("Write", map[string]any{"file_path": filepath.Join(dir, "settings.local.json"), "content": `{"permissions":{}}`}), false},
@@ -140,7 +140,7 @@ func TestProvguardHome(t *testing.T) {
 	if Check(pre("Write", map[string]any{"file_path": filepath.Join(home+"x", "a"), "content": ""}), home, nil).Deny {
 		t.Fatal("sibling dir with same prefix blocked")
 	}
-	// Reading config is fine; the key and sessions are secret (review, LOW).
+	// Reading config is fine; the key and sessions are secret.
 	if Check(pre("Read", map[string]any{"file_path": filepath.Join(home, "config.json")}), home, nil).Deny {
 		t.Fatal("reading config must not be blocked")
 	}

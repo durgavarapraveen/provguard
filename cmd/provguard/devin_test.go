@@ -11,13 +11,9 @@ import (
 // --agent: Devin runs the Claude Code hooks) and returns the decision.
 func devinCall(t *testing.T, s *session, ev string, fields map[string]any) string {
 	t.Helper()
-	p := map[string]any{"hook_event_name": ev, "session_id": "dev-1", "prompt_id": "p1", "cwd": s.home}
-	for k, v := range fields {
-		p[k] = v
-	}
-	b, _ := json.Marshal(p)
+	in := hookInput(map[string]any{"hook_event_name": ev, "session_id": "dev-1", "prompt_id": "p1", "cwd": s.home}, fields)
 	var out bytes.Buffer
-	runHook(bytes.NewReader(b), &out, ev)
+	runHook(in, &out, ev)
 	if out.Len() == 0 {
 		return ""
 	}

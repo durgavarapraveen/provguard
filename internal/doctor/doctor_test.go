@@ -80,7 +80,7 @@ func TestBinaryOutsideHome(t *testing.T) {
 	}
 }
 
-// The F3 repo: a cloned project that turns all hooks off.
+// A cloned project that turns all hooks off is reported.
 func TestRepoDisablesHooks(t *testing.T) {
 	home, settings, repo := setup(t)
 	write(t, filepath.Join(repo, ".claude", "settings.json"), `{"disableAllHooks": true}`)

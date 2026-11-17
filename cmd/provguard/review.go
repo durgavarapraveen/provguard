@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"github.com/durgavarapraveen/provguard/internal/redact"
 	"io"
 	"os"
 	"sort"
@@ -136,7 +137,7 @@ func printReview(w io.Writer, rv review, profile string) {
 	for _, g := range rv.groups {
 		fmt.Fprintf(w, "\n  %s (%s): %d stopped, %d asked\n", ruleTitle(g.rule), g.rule, g.deny, g.ask)
 		for _, e := range g.examples {
-			fmt.Fprintf(w, "    %s  %-8s %s\n", e.Time.Local().Format("Jan 02 15:04"), e.ToolName, oneLine(callText(e.ToolInput), 90))
+			fmt.Fprintf(w, "    %s  %-8s %s\n", e.Time.Local().Format("Jan 02 15:04"), e.ToolName, redact.OneLine(callText(e.ToolInput), 90))
 		}
 	}
 	fmt.Fprintln(w)

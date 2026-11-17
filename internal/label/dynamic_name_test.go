@@ -8,10 +8,9 @@ import (
 	"github.com/durgavarapraveen/provguard/internal/shell"
 )
 
-// Found live (audit log, PostToolUse / PowerShell): a program name known
-// only at run time produced a Cmd with no arguments, and slicing Args[1:]
-// panicked. The hook recovered and exited without labelling the event, so
-// the session silently kept its old labels.
+// A program name known only at run time gives a Cmd with no arguments.
+// Labeling must not panic on it: a recovered panic skips the event, so the
+// session would silently keep its old labels.
 func TestDynamicProgramNameDoesNotPanic(t *testing.T) {
 	for _, cmd := range []string{
 		`& $tool status`,

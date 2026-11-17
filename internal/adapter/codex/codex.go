@@ -15,7 +15,6 @@
 package codex
 
 import (
-	"os"
 	"path/filepath"
 
 	"github.com/durgavarapraveen/provguard/internal/adapter/claudecode"
@@ -69,26 +68,10 @@ func (Adapter) Feedback(e event.Event, notice, _ string) []byte {
 func (Adapter) CanAsk() bool { return false }
 
 // Dir is Codex's home folder: $CODEX_HOME, or ~/.codex.
-func Dir() (string, error) {
-	if h := os.Getenv("CODEX_HOME"); h != "" {
-		return h, nil
-	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(home, ".codex"), nil
-}
+func Dir() (string, error) { return core.AgentDir("CODEX_HOME", ".codex") }
 
 // Present reports whether Codex's folder exists.
-func Present() bool {
-	d, err := Dir()
-	if err != nil {
-		return false
-	}
-	_, err = os.Stat(d)
-	return err == nil
-}
+func Present() bool { return core.Exists(Dir) }
 
 // HooksFile is Codex's user hook file.
 func HooksFile() (string, error) {

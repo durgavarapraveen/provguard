@@ -9,7 +9,7 @@ import (
 
 // canonical returns the path that the OS will really open for p.
 //
-// Review findings (CRIT): Windows strips trailing dots and spaces from each
+// Windows strips trailing dots and spaces from each
 // path segment, ignores the default "::$DATA" stream suffix, accepts
 // "\\?\" prefixes and 8.3 short names, and follows symlinks and junctions.
 // Any of these let a name-based check be bypassed. canonical removes the
@@ -32,8 +32,8 @@ func canonical(p, cwd string) string {
 }
 
 // The cache lives for one hook process (one tool call), so it cannot go
-// stale across calls. Review finding (LOW): the same home/.claude/cwd paths
-// were resolved through the OS many times per call (~4 ms).
+// stale across calls. It saves resolving the same home/.claude/cwd paths
+// through the OS many times per call (~4 ms).
 var (
 	canonMu    sync.Mutex
 	canonCache = map[string]string{}

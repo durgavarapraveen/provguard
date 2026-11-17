@@ -7,8 +7,8 @@ import (
 	"github.com/durgavarapraveen/provguard/internal/config"
 )
 
-// MED: allowed_hosts used to trust content too, so provguard now reports
-// content-trust entries that anyone can publish to, or that are too broad.
+// Content-trust entries that anyone can publish to, or that are too broad,
+// are reported.
 func TestContentTrustFindings(t *testing.T) {
 	cases := map[string]struct {
 		hosts []string

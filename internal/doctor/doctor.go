@@ -1,10 +1,11 @@
 // Package doctor checks that provguard's hooks are intact and scans a
 // repository for settings and instruction files that could hijack an agent
-// or turn hooks off before any hook runs (finding F3).
+// or turn hooks off before any hook runs.
 package doctor
 
 import (
 	"encoding/json"
+	"github.com/durgavarapraveen/provguard/internal/redact"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -97,7 +98,7 @@ func HookIntegrity(o Options) []Finding {
 				continue
 			}
 			if b, _ := ps["disableAllHooks"].(bool); b {
-				out = append(out, Finding{High, "repo settings", p + " sets disableAllHooks: opening this repo turns provguard off (finding F3)"})
+				out = append(out, Finding{High, "repo settings", p + " sets disableAllHooks: opening this repo turns provguard off"})
 			}
 			if ph, ok := ps["hooks"].(map[string]any); ok && len(ph) > 0 {
 				for ev, v := range ph {
@@ -117,8 +118,7 @@ func HookIntegrity(o Options) []Finding {
 // failClosedFindings reports when the installed PreToolUse hook does not
 // match the profile. `provguard init` writes "onFailure": "block" only for
 // strict, so switching the profile in config.json afterwards leaves the
-// setting behind. Review finding (LOW): a hook that times out is a way
-// through, and nothing said so.
+// setting behind, and a hook that times out without it is a way through.
 func failClosedFindings(o Options, hooks map[string]any) []Finding {
 	if o.Home == "" {
 		return nil
@@ -237,7 +237,7 @@ func ScanRepo(repo, home string) []Finding {
 		text := string(b)
 		for _, s := range suspicious {
 			if m := s.re.FindString(text); m != "" {
-				out = append(out, Finding{s.sev, "instructions", name + ": " + s.what + ": " + oneLine(m, 90)})
+				out = append(out, Finding{s.sev, "instructions", name + ": " + s.what + ": " + redact.OneLine(m, 90)})
 			}
 		}
 		if invisible.MatchString(text) {
@@ -260,7 +260,7 @@ func ScanRepo(repo, home string) []Finding {
 			if what == "" {
 				what = strings.TrimSpace(s.Command + " " + strings.Join(s.Args, " "))
 			}
-			out = append(out, Finding{Medium, "mcp", ".mcp.json defines server " + name + ": " + oneLine(what, 90)})
+			out = append(out, Finding{Medium, "mcp", ".mcp.json defines server " + name + ": " + redact.OneLine(what, 90)})
 		}
 	}
 	cfg, err := config.Load(home)
@@ -304,7 +304,7 @@ var publicContentHosts = map[string]bool{
 
 // contentTrustFindings reports trusted_content_hosts entries that are too
 // broad to mean anything, and entries that look like they were meant for
-// allowed_hosts (review finding: the two lists used to be one).
+// allowed_hosts.
 func contentTrustFindings(cfg config.Config) []Finding {
 	var out []Finding
 	for _, h := range cfg.TrustedContentHosts {
@@ -324,11 +324,3 @@ func contentTrustFindings(cfg config.Config) []Finding {
 }
 
 func strconvQuote(s string) string { return `"` + s + `"` }
-
-func oneLine(s string, max int) string {
-	s = strings.Join(strings.Fields(s), " ")
-	if len(s) > max {
-		return s[:max] + "…"
-	}
-	return s
-}

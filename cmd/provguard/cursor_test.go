@@ -13,16 +13,12 @@ import (
 // returns the decision and message printed ("" when none).
 func cursorCall(t *testing.T, s *session, event string, fields map[string]any) (string, string) {
 	t.Helper()
-	p := map[string]any{
+	in := hookInput(map[string]any{
 		"conversation_id": "cur-1", "generation_id": "g", "cursor_version": "2.4.0",
 		"workspace_roots": []string{s.home}, "cwd": s.home, "hook_event_name": event,
-	}
-	for k, v := range fields {
-		p[k] = v
-	}
-	b, _ := json.Marshal(p)
+	}, fields)
 	var out bytes.Buffer
-	runHook(bytes.NewReader(b), &out, "")
+	runHook(in, &out, "")
 	if out.Len() == 0 {
 		return "", ""
 	}

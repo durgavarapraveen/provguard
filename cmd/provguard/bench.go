@@ -6,6 +6,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"github.com/durgavarapraveen/provguard/internal/redact"
 	"io"
 	"os"
 	"path/filepath"
@@ -270,7 +271,7 @@ func runBenign(tasks []bench.Case, profile string) (benignResult, error) {
 		}
 		for _, s := range r.All {
 			br.Calls++
-			hit := fpHit{Task: t.ID + " " + t.Name, Tool: s.Tool, Call: oneLine(s.Call, 70), Decision: s.Decision, Rule: s.Rule}
+			hit := fpHit{Task: t.ID + " " + t.Name, Tool: s.Tool, Call: redact.OneLine(s.Call, 70), Decision: s.Decision, Rule: s.Rule}
 			switch {
 			case s.Decision == "" && s.Would != "":
 				hit.Decision = "would " + s.Would

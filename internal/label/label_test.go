@@ -82,7 +82,7 @@ func TestWebFetchTrustedContentHost(t *testing.T) {
 	if r := Post(e, Env{Config: trust}); !r.Untrusted {
 		t.Fatal("look-alike host must stay untrusted")
 	}
-	// Review finding (MED): allowed_hosts is an egress list only. Letting
+	// allowed_hosts is an egress list only. Letting
 	// the agent upload to a host must not trust what that host serves.
 	e = post("WebFetch", map[string]any{"url": "https://docs.example.com/a"}, map[string]any{"result": "x"})
 	if r := Post(e, Env{Config: config.Config{AllowedHosts: []string{"example.com"}}}); !r.Untrusted {
@@ -146,7 +146,7 @@ func TestGitHubReadOfTrustedRepo(t *testing.T) {
 		cmd       string
 		untrusted bool
 	}{
-		// Review: issue/PR text is written by outsiders even in your own repo.
+		// Issue/PR text is written by outsiders even in your own repo.
 		{"gh issue view 12", true},
 		{"gh pr view 3 -R me/app", true},
 		{"gh pr view 3 -R me/app --json state,url --jq .state", false},

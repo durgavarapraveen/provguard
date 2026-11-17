@@ -27,8 +27,8 @@ func RepoRoot(file string) string {
 }
 
 // KnownGitHosts are forges where "owner" in host/owner/repo means an account.
-// Review finding: the owner was taken from any host, so
-// https://attacker.example/<trusted-owner>/x.git counted as trusted.
+// The owner counts only on these hosts, so
+// https://attacker.example/<trusted-owner>/x.git is not trusted.
 var KnownGitHosts = map[string]bool{
 	"github.com": true, "ssh.github.com": true, "gitlab.com": true, "bitbucket.org": true,
 	"codeberg.org": true, "dev.azure.com": true, "ssh.dev.azure.com": true,
@@ -79,8 +79,8 @@ func RemoteOwner(root, remote string) string {
 }
 
 // RemoteURL returns the URL git pushes to for remote: pushurl before url,
-// with url.<base>.pushInsteadOf / insteadOf rewrites applied (review finding:
-// only "url" was read, so a pushurl could send data elsewhere).
+// with url.<base>.pushInsteadOf / insteadOf rewrites applied, because a
+// pushurl or rewrite can send data somewhere other than "url".
 func RemoteURL(root, remote string) string {
 	cfg := gitConfig(root)
 	u := cfg["remote."+remote+".pushurl"]

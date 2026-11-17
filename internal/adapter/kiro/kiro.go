@@ -103,26 +103,10 @@ func (Adapter) CanAsk() bool { return false }
 
 // Dir is Kiro's home folder, ~/.kiro. PROVGUARD_KIRO_HOME (provguard's
 // own variable, not Kiro's) points elsewhere, for tests.
-func Dir() (string, error) {
-	if h := os.Getenv("PROVGUARD_KIRO_HOME"); h != "" {
-		return h, nil
-	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(home, ".kiro"), nil
-}
+func Dir() (string, error) { return core.AgentDir("PROVGUARD_KIRO_HOME", ".kiro") }
 
 // Present reports whether Kiro's folder exists.
-func Present() bool {
-	d, err := Dir()
-	if err != nil {
-		return false
-	}
-	_, err = os.Stat(d)
-	return err == nil
-}
+func Present() bool { return core.Exists(Dir) }
 
 // HooksFile is provguard's file among Kiro's global hooks.
 func HooksFile() (string, error) {

@@ -86,7 +86,7 @@ func TestRules(t *testing.T) {
 		{"force push feature", "git push --force-with-lease origin feature/login", sess(false, false), None, ""},
 		{"reset hard", "git reset --hard HEAD~2", sess(false, false), Ask, "destroy"},
 		{"gh repo delete loop", `for r in a b; do gh repo delete "me/$r" --yes; done`, sess(false, false), Ask, "destroy"},
-		// week 6 tuning
+		// no false positives for manifest installs and localhost
 		{"manifest install tainted", "npm install", sess(true, false), None, ""},
 		{"requirements install tainted", "pip install -r requirements.txt", sess(true, false), None, ""},
 		{"named install tainted", "npm install left-pad", sess(true, false), Ask, "tainted_exec_remote"},
@@ -117,7 +117,7 @@ func TestProfiles(t *testing.T) {
 	if r := judge(cmd, s, config.Config{Profile: "strict"}); r.Decision != Deny || r.Would != Deny {
 		t.Fatalf("strict: %+v", r)
 	}
-	// Review (MED): a typo must not silently turn blocking off.
+	// A typo in the profile must not silently turn blocking off.
 	for _, p := range []string{"bogus", " balanced", "Balanced", "balancd"} {
 		if r := judge(cmd, s, config.Config{Profile: p}); r.Decision != Ask {
 			t.Fatalf("profile %q: decision %q, want balanced behavior", p, r.Decision)

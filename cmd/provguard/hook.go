@@ -181,7 +181,7 @@ func handle(ad core.Adapter, e event.Event, out *hookOutput, rec *audit.Record) 
 }
 
 // configChanged re-checks hook integrity when settings change mid-session
-// (finding F4: edits take effect at once). It cannot undo the change, so it
+// (agents reload settings edits at once). It cannot undo the change, so it
 // records tampering and marks the session untrusted.
 func configChanged(home string, e event.Event, rec *audit.Record) error {
 	settings, err := install.DefaultSettingsPath()

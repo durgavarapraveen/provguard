@@ -71,7 +71,7 @@ func TestSummaryForEveryRule(t *testing.T) {
 	}
 }
 
-// Review finding 11: the "always allow this host" hint must never name the
+// The "always allow this host" hint must never name the
 // attacker's host, written without a scheme or as a subdomain.
 func TestSafeHostsSkipsAttacker(t *testing.T) {
 	egress := func(u string) []shell.Sink { return []shell.Sink{{Class: shell.Egress, Target: u}} }

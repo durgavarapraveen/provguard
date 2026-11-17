@@ -12,13 +12,9 @@ import (
 // (`provguard hook --agent gemini-cli <event>`) and returns the decision.
 func geminiCall(t *testing.T, s *session, ev string, fields map[string]any) (string, string) {
 	t.Helper()
-	p := map[string]any{"hook_event_name": ev, "session_id": "gem-1", "cwd": s.home, "timestamp": "2026-11-17T10:00:00Z"}
-	for k, v := range fields {
-		p[k] = v
-	}
-	b, _ := json.Marshal(p)
+	in := hookInput(map[string]any{"hook_event_name": ev, "session_id": "gem-1", "cwd": s.home, "timestamp": "2026-11-17T10:00:00Z"}, fields)
 	var out bytes.Buffer
-	runAgentHook(bytes.NewReader(b), &out, ev, "gemini-cli")
+	runAgentHook(in, &out, ev, "gemini-cli")
 	if out.Len() == 0 {
 		return "", ""
 	}

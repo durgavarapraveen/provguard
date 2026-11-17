@@ -105,12 +105,11 @@ func safeHosts(sinks []shell.Sink, untrustedValues []string) []string {
 	return out
 }
 
-//
-// Review finding: values without a scheme ("evil.com/drop") and subdomains
-// of an untrusted host were missed. A host now counts as untrusted when it
-// appears in a value at all, or shares its last two labels with the host of
-// one (a.evil.org and evil.org; for co.uk-style names this is stricter than
-// needed, which only hides the hint).
+// fromUntrusted reports whether host came from untrusted content. A host
+// counts as untrusted when it appears in a value at all, so values without a
+// scheme ("evil.com/drop") are caught, or shares its last two labels with the
+// host of one, so subdomains are caught (a.evil.org and evil.org; for
+// co.uk-style names this is stricter than needed, which only hides the hint).
 func fromUntrusted(host string, values []string) bool {
 	for _, v := range values {
 		v = strings.ToLower(v)

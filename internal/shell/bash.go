@@ -103,8 +103,7 @@ func (b *bashAn) stmt(s *syntax.Stmt) {
 				continue
 			}
 			// A shell reads the heredoc as bash; an interpreter (python -,
-			// node, perl…) reads it as its own code. Found in review: python
-			// heredocs were parsed as bash.
+			// node, perl…) reads it as its own code.
 			if name, _ := b.effective(s); interpreters[name] {
 				v, dyn := b.word(body)
 				inlineCode(b.a, name, v, dyn)
@@ -116,9 +115,8 @@ func (b *bashAn) stmt(s *syntax.Stmt) {
 }
 
 // effective returns the program that s really runs and its arguments, after
-// resolving quotes and removing prefix wrappers. Review finding: the first
-// word alone (unresolved) missed `sudo bash <<EOF`, `curl … | sudo bash`
-// and `"bash" <<EOF`.
+// resolving quotes and removing prefix wrappers, so `sudo bash <<EOF`,
+// `curl … | sudo bash` and `"bash" <<EOF` all resolve to bash.
 func (b *bashAn) effective(s *syntax.Stmt) (string, []string) {
 	c, ok := s.Cmd.(*syntax.CallExpr)
 	if !ok || len(c.Args) == 0 {
@@ -335,30 +333,21 @@ func isHex(c byte) bool {
 	return c >= '0' && c <= '9' || c >= 'a' && c <= 'f' || c >= 'A' && c <= 'F'
 }
 
-func unescape(s string) string {
-	if !strings.Contains(s, `\`) {
-		return s
-	}
-	var sb strings.Builder
-	for i := 0; i < len(s); i++ {
-		if s[i] == '\\' && i+1 < len(s) {
-			i++
-			if s[i] == '\n' {
-				continue
-			}
-		}
-		sb.WriteByte(s[i])
-	}
-	return sb.String()
-}
+// unescape removes backslash escapes from an unquoted word.
+func unescape(s string) string { return unescapeOnly(s, "") }
 
-func unescapeDq(s string) string {
+// unescapeDq removes the backslash escapes that work inside double quotes.
+func unescapeDq(s string) string { return unescapeOnly(s, "$`\"\\\n") }
+
+// unescapeOnly removes a backslash before any character in only (before
+// every character when only is ""); a backslash-newline is removed whole.
+func unescapeOnly(s, only string) string {
 	if !strings.Contains(s, `\`) {
 		return s
 	}
 	var sb strings.Builder
 	for i := 0; i < len(s); i++ {
-		if s[i] == '\\' && i+1 < len(s) && strings.IndexByte("$`\"\\\n", s[i+1]) >= 0 {
+		if s[i] == '\\' && i+1 < len(s) && (only == "" || strings.IndexByte(only, s[i+1]) >= 0) {
 			i++
 			if s[i] == '\n' {
 				continue
