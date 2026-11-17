@@ -7,6 +7,7 @@ import (
 	"github.com/durgavarapraveen/provguard/internal/adapter/codex"
 	"github.com/durgavarapraveen/provguard/internal/adapter/copilot"
 	"github.com/durgavarapraveen/provguard/internal/adapter/gemini"
+	"github.com/durgavarapraveen/provguard/internal/adapter/kiro"
 	"github.com/durgavarapraveen/provguard/internal/install"
 )
 
@@ -40,6 +41,12 @@ var otherAgents = []otherAgent{
 		present:   gemini.Present,
 		install:   gemini.Install,
 		uninstall: gemini.Uninstall,
+	},
+	{
+		name:      "Kiro (IDE and CLI)",
+		present:   kiro.Present,
+		install:   kiro.Install,
+		uninstall: kiro.Uninstall,
 	},
 }
 
