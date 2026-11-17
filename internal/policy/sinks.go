@@ -51,6 +51,15 @@ func ToolSinks(e event.Event, cfg config.Config) ([]shell.Sink, string) {
 		}
 		return []shell.Sink{{Class: shell.Persist, Detail: "path:" + where, Target: p}}, text
 
+	case e.ToolName == "Delete":
+		// Cursor's file delete tool. Inside the project it is ordinary
+		// work; riskyDestroy and the untrusted rule decide like for rm.
+		p, _ := e.ToolInput["file_path"].(string)
+		if p == "" {
+			return nil, ""
+		}
+		return []shell.Sink{{Class: shell.Destroy, Detail: "rm_recursive", Target: p}}, p
+
 	case strings.HasPrefix(e.ToolName, "mcp__"):
 		if e.MCPSource == "sdk" && cfg.TrustSDK() {
 			return nil, "" // in-process tools of the host app

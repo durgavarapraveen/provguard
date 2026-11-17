@@ -7,7 +7,8 @@ import (
 	"os"
 	"time"
 
-	"github.com/durgavarapraveen/provguard/internal/adapter/claudecode"
+	"github.com/durgavarapraveen/provguard/internal/adapter"
+	"github.com/durgavarapraveen/provguard/internal/adapter/core"
 	"github.com/durgavarapraveen/provguard/internal/audit"
 	"github.com/durgavarapraveen/provguard/internal/config"
 	"github.com/durgavarapraveen/provguard/internal/install"
@@ -133,7 +134,8 @@ func failClosedReason(cfg config.Config, home, session string) string {
 
 func runHook(stdin io.Reader, stdout io.Writer, eventArg string) (code int) {
 	start := time.Now()
-	rec := audit.Record{Agent: claudecode.Agent, Event: eventArg, Decision: "none"}
+	ad := adapter.Default()
+	rec := audit.Record{Agent: ad.Name(), Event: eventArg, Decision: "none"}
 	defer func() {
 		if p := recover(); p != nil {
 			rec.Error = fmt.Sprintf("panic: %v", p)
@@ -142,7 +144,7 @@ func runHook(stdin io.Reader, stdout io.Writer, eventArg string) (code int) {
 			if home, err := audit.Home(); err == nil {
 				if cfg, err := config.Load(home); err == nil {
 					if why := failClosedReason(cfg, home, rec.SessionID); why != "" {
-						respond(stdout, &rec, claudecode.Deny, "fail_closed",
+						respond(stdout, &rec, ad, core.Deny, "fail_closed",
 							"provguard (fail_closed): the security check could not run ("+oneLine(rec.Error, 120)+"), "+why+".")
 					}
 				}
@@ -161,13 +163,15 @@ func runHook(stdin io.Reader, stdout io.Writer, eventArg string) (code int) {
 		rec.Error = "read stdin: " + err.Error()
 		return 0
 	}
-	e, err := claudecode.Parse(raw, eventArg)
+	ad, raw = adapter.ForPayload(raw)
+	rec.Agent = ad.Name()
+	e, err := ad.Parse(raw, eventArg)
 	if err != nil {
 		rec.Error = err.Error()
 		return 0
 	}
 	rec = audit.FromEvent(e)
 	rec.Decision = "none"
-	handle(e, stdout, &rec)
+	handle(ad, e, stdout, &rec)
 	return 0
 }

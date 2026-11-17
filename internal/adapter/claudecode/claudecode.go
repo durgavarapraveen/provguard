@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/durgavarapraveen/provguard/internal/adapter/core"
 	"github.com/durgavarapraveen/provguard/internal/event"
 )
 
@@ -100,19 +101,47 @@ func (m *mcpServer) source() string {
 	return m.Source
 }
 
-// Decision is a PreToolUse permission decision.
-type Decision string
+// Adapter implements core.Adapter for Claude Code. It is also the fallback
+// for payloads no other adapter recognizes.
+type Adapter struct{}
 
-const (
-	Allow Decision = "allow"
-	Deny  Decision = "deny"
-	Ask   Decision = "ask"
-)
+func (Adapter) Name() string { return Agent }
+
+// Detect accepts any JSON object: Claude Code's payload has no field that
+// other agents never send, so it is tried last.
+func (Adapter) Detect(raw []byte) bool { return json.Valid(raw) }
+
+func (Adapter) Parse(raw []byte, eventArg string) (event.Event, error) { return Parse(raw, eventArg) }
+
+func (Adapter) Reply(d core.Decision, reason string) ([]byte, error) {
+	return PreToolResponse(d, reason)
+}
+
+func (Adapter) CanAsk() bool { return true }
+
+// Feedback uses "systemMessage" (shown to the user) and
+// hookSpecificOutput.sessionTitle (SessionStart and UserPromptSubmit).
+// PreToolUse answers only with decisions.
+func (Adapter) Feedback(e event.Event, notice, title string) []byte {
+	if e.Kind == event.PreTool {
+		return nil
+	}
+	out := map[string]any{}
+	if notice != "" {
+		out["systemMessage"] = notice
+	}
+	if title != "" {
+		out["hookSpecificOutput"] = map[string]any{"hookEventName": e.RawEvent, "sessionTitle": title}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	b, _ := json.Marshal(out)
+	return b
+}
 
 // PreToolResponse builds the stdout JSON for a PreToolUse decision.
-// Do not send Allow unless policy requires it: "allow" skips the user's
-// normal permission prompt.
-func PreToolResponse(d Decision, reason string) ([]byte, error) {
+func PreToolResponse(d core.Decision, reason string) ([]byte, error) {
 	return json.Marshal(map[string]any{
 		"hookSpecificOutput": map[string]any{
 			"hookEventName":            "PreToolUse",
