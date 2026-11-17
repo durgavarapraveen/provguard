@@ -60,7 +60,7 @@ type Adapter interface {
 // (Antigravity blocks a tool call whose hook prints no valid JSON).
 // EmptyReply is printed when provguard has nothing else to say.
 type AlwaysReplies interface {
-	EmptyReply() []byte
+	EmptyReply(eventName string) []byte
 }
 
 // Response is what the hook process writes and how it exits.

@@ -1,9 +1,19 @@
 package core
 
-import "testing"
+import (
+	"runtime"
+	"testing"
+)
 
 func TestHookCommand(t *testing.T) {
-	p, w := HookCommand(`C:\Users\me\.provguard\bin\provguard.exe`, "kiro", "PreToolUse")
+	p, w := HookCommand("/home/me/.provguard/bin/provguard", "kiro", "PreToolUse")
+	if p != `"/home/me/.provguard/bin/provguard" hook --agent kiro PreToolUse` || w != `/home/me/.provguard/bin/provguard hook --agent kiro PreToolUse` {
+		t.Errorf("unix path: %q %q", p, w)
+	}
+	if runtime.GOOS != "windows" {
+		return // backslashes are path separators only on Windows
+	}
+	p, w = HookCommand(`C:\Users\me\.provguard\bin\provguard.exe`, "kiro", "PreToolUse")
 	if p != `"C:/Users/me/.provguard/bin/provguard.exe" hook --agent kiro PreToolUse` ||
 		w != `C:/Users/me/.provguard/bin/provguard.exe hook --agent kiro PreToolUse` {
 		t.Errorf("no space: %q %q", p, w)

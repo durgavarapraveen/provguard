@@ -8,8 +8,9 @@
 // are handled here:
 //   - Devin's tool names (exec, read, write, edit, apply_patch, grep, glob,
 //     webfetch, notebook_*) are mapped to provguard's;
-//   - every payload carries prompt_id after the first prompt, which is how
-//     Detect recognizes Devin;
+//   - every payload carries prompt_id after the first prompt, but no
+//     transcript_path; Claude Code (2.1.238 and later) sends prompt_id too,
+//     always with transcript_path, so Detect needs both facts;
 //   - replies are {"decision": "block", "reason": ...}; there is no "ask".
 //
 // Schema sources (checked 2026-11-17):
@@ -52,14 +53,15 @@ func (Adapter) Name() string { return Agent }
 // sends.
 func (Adapter) Detect(raw []byte) bool {
 	var p struct {
-		PromptID *string `json:"prompt_id"`
-		ToolName string  `json:"tool_name"`
+		PromptID       *string `json:"prompt_id"`
+		TranscriptPath *string `json:"transcript_path"`
+		ToolName       string  `json:"tool_name"`
 	}
 	if json.Unmarshal(raw, &p) != nil {
 		return false
 	}
 	_, devinTool := tools[p.ToolName]
-	return p.PromptID != nil || devinTool
+	return devinTool || p.PromptID != nil && p.TranscriptPath == nil
 }
 
 func (Adapter) Parse(raw []byte, eventArg string) (event.Event, error) {

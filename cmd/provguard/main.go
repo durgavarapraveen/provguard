@@ -199,7 +199,7 @@ func runHookIO(stdin io.Reader, stdout, stderr io.Writer, eventArg, agent string
 			}
 		}
 		if r, ok := ad.(core.AlwaysReplies); ok && written.n == 0 && out.code == 0 {
-			written.Write(r.EmptyReply())
+			written.Write(r.EmptyReply(eventArg))
 		}
 		rec.Time = start
 		rec.LatencyMicros = time.Since(start).Microseconds()

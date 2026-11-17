@@ -3,6 +3,7 @@ package gemini
 import (
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -78,7 +79,7 @@ func TestInstallKeepsSettings(t *testing.T) {
 	}
 	bt := s.Hooks["BeforeTool"]
 	if s.Theme != "Dracula" || len(s.Hooks["AfterAgent"]) != 1 || len(bt) != 1 || bt[0].Matcher != ".*" ||
-		bt[0].Hooks[0].Command != "/home/u/.provguard/bin/provguard hook --agent gemini-cli BeforeTool" || bt[0].Hooks[0].Timeout != 10000 {
+		bt[0].Hooks[0].Command != core.HookCommandHere("/home/u/.provguard/bin/provguard", Agent, "BeforeTool") || bt[0].Hooks[0].Timeout != 10000 {
 		t.Errorf("settings:\n%s", b)
 	}
 	if removed, err := Uninstall(); !removed || err != nil {
@@ -86,5 +87,21 @@ func TestInstallKeepsSettings(t *testing.T) {
 	}
 	if b, _ := os.ReadFile(p); strings.Contains(string(b), "provguard") || !strings.Contains(string(b), "notify") {
 		t.Errorf("after uninstall:\n%s", b)
+	}
+}
+
+// Antigravity also uses ~/.gemini: its folders alone do not mean Gemini CLI.
+func TestPresentNeedsGeminiCLIFiles(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("GEMINI_CLI_HOME", home)
+	for _, d := range []string{"antigravity", "antigravity-ide", "bin", "config", "logs"} {
+		os.MkdirAll(filepath.Join(home, ".gemini", d), 0o700)
+	}
+	if Present() {
+		t.Error("Antigravity's folders were taken for Gemini CLI")
+	}
+	os.WriteFile(filepath.Join(home, ".gemini", "installation_id"), []byte("x"), 0o600)
+	if !Present() {
+		t.Error("Gemini CLI not found")
 	}
 }

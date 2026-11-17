@@ -108,3 +108,23 @@ func TestCheckUsesRepoPolicy(t *testing.T) {
 		t.Errorf("exit %d\n%s", code, out)
 	}
 }
+
+// Claude Code 2.1.238 sends prompt_id in every hook call, like Devin. Its
+// calls must still be answered in Claude Code's format, or Claude Code would
+// ignore the block.
+func TestClaudeCodeWithPromptID(t *testing.T) {
+	s := newSession(t, `{"profile":"balanced"}`)
+	b, _ := json.Marshal(map[string]any{
+		"session_id": "cc", "transcript_path": filepath.Join(s.home, "t.jsonl"), "cwd": s.home, "prompt_id": "p1",
+		"permission_mode": "default", "hook_event_name": "PreToolUse", "tool_name": "Write",
+		"tool_input": map[string]any{"file_path": filepath.Join(s.home, ".claude", "settings.json"), "content": `{"disableAllHooks":true}`},
+	})
+	var out bytes.Buffer
+	runHook(bytes.NewReader(b), &out, "")
+	if !strings.Contains(out.String(), `"permissionDecision":"deny"`) {
+		t.Errorf("not answered in Claude Code's format: %s", out.String())
+	}
+	if recs := readLog(t, s.home); recs[len(recs)-1].Agent != "claude-code" {
+		t.Errorf("recorded as %q", recs[len(recs)-1].Agent)
+	}
+}

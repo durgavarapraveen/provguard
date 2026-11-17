@@ -14,6 +14,9 @@ func TestDetect(t *testing.T) {
 		`{"hook_event_name":"PostToolUse","tool_name":"mcp__gh__x","session_id":"s","prompt_id":"p"}`:                        true,
 		`{"hook_event_name":"PreToolUse","tool_name":"webfetch","session_id":"s"}`:                                           true,
 		`{"hook_event_name":"PreToolUse","tool_name":"Bash","session_id":"s","transcript_path":"/t"}`:                        false,
+		// Claude Code 2.1.238 sends prompt_id in every call, always with transcript_path.
+		`{"session_id":"s","transcript_path":"/t.jsonl","cwd":"/w","prompt_id":"p","permission_mode":"default","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"ls"}}`: false,
+		`{"session_id":"s","transcript_path":"/t.jsonl","cwd":"/w","prompt_id":"p","hook_event_name":"UserPromptSubmit","prompt":"hi"}`:                                                          false,
 	} {
 		if got := (Adapter{}).Detect([]byte(raw)); got != want {
 			t.Errorf("%s: got %v", raw, got)

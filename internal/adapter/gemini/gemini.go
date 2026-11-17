@@ -135,8 +135,17 @@ func Dir() (string, error) {
 	return filepath.Join(home, ".gemini"), nil
 }
 
-// Present reports whether Gemini CLI's folder exists.
-func Present() bool { return core.Exists(Dir) }
+// Present reports whether Gemini CLI has run here. Its folder alone is not
+// enough: Antigravity uses ~/.gemini too (antigravity*, bin, config, logs).
+// These files are Gemini CLI's own.
+func Present() bool {
+	for _, f := range []string{"settings.json", "installation_id", "oauth_creds.json", "google_accounts.json", "GEMINI.md"} {
+		if core.Exists(Dir, f) {
+			return true
+		}
+	}
+	return false
+}
 
 // SettingsFile is Gemini CLI's user settings file, which holds its hooks.
 func SettingsFile() (string, error) {
