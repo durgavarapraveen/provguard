@@ -148,6 +148,20 @@ func factoryHooks(segs []string) bool {
 	return hooksDirOf(segs, ".factory") || n >= 2 && segMatch(segs[n-2], ".factory") && segMatch(segs[n-1], "hooks.json")
 }
 
+// antigravityHooks: Antigravity's hook files, ~/.gemini/config/hooks.json
+// (global) and .agents/hooks.json (workspace), or the folder holding the
+// global one. An entry there can turn provguard's off ("enabled": false).
+func antigravityHooks(segs []string) bool {
+	n := len(segs)
+	if n >= 2 && segMatch(segs[n-1], "config") && segMatch(segs[n-2], ".gemini") {
+		return true
+	}
+	if n < 2 || !segMatch(segs[n-1], "hooks.json") {
+		return false
+	}
+	return segMatch(segs[n-2], ".agents") || segMatch(segs[n-2], "config") && n >= 3 && segMatch(segs[n-3], ".gemini")
+}
+
 // opencodeConfig: an OpenCode config file (opencode.json[c] can disable a
 // plugin with "-provguard"), a plugins folder (any plugin runs code in
 // OpenCode and can undo provguard's), or the folder holding them: .opencode
@@ -262,6 +276,8 @@ func protectedPath(p, op, home, cwd string, cds []string) string {
 			return "Copilot's hook configuration"
 		case factoryHooks(segs):
 			return "Factory Droid's hook configuration"
+		case antigravityHooks(segs):
+			return "Antigravity's hook configuration"
 		case opencodeConfig(segs):
 			return "OpenCode's plugins or configuration"
 		case hooksDirOf(segs, ".kiro"):
@@ -526,16 +542,17 @@ var protectedText = regexp.MustCompile(`(?i)` + strings.Join([]string{
 	`disableAllHooks`,
 	`allowManagedHooksOnly`,
 	`\.claude[\\/]+settings(?:\.local)?\.json`,
-	`\.claude[\\/]+set[a-z0-9._]*[*?\[]`,           // a glob that can expand to a settings file
-	`\.copilot[\\/]+(?:hooks|settings)`,            // Copilot hook files and settings
-	`\.github[\\/]+copilot[\\/]+settings`,          // Copilot repository settings
-	`\.gemini[\\/]+settings`,                       // Gemini CLI settings (hooks, hooksConfig)
-	`\.?devin[\\/]+(?:config|hooks\.v1)`,           // Devin config and hooks
-	`\.kiro[\\/]+hooks`,                            // Kiro hook files
-	`\.factory[\\/]+(?:hooks|settings)`,            // Factory Droid hooks and settings
-	`opencode[\\/]+plugins?\b|opencode\.jsonc?\b`,  // OpenCode plugins and config
-	`read_config_from`,                             // Devin's switch for the Claude Code hooks
-	`\.codex[\\/]+(?:config|hooks|requirements)\.`, // Codex hook settings
+	`\.claude[\\/]+set[a-z0-9._]*[*?\[]`,               // a glob that can expand to a settings file
+	`\.copilot[\\/]+(?:hooks|settings)`,                // Copilot hook files and settings
+	`\.github[\\/]+copilot[\\/]+settings`,              // Copilot repository settings
+	`\.gemini[\\/]+settings`,                           // Gemini CLI settings (hooks, hooksConfig)
+	`\.?devin[\\/]+(?:config|hooks\.v1)`,               // Devin config and hooks
+	`\.kiro[\\/]+hooks`,                                // Kiro hook files
+	`\.factory[\\/]+(?:hooks|settings)`,                // Factory Droid hooks and settings
+	`opencode[\\/]+plugins?\b|opencode\.jsonc?\b`,      // OpenCode plugins and config
+	`\.gemini[\\/]+config\b|\.agents[\\/]+hooks\.json`, // Antigravity hooks
+	`read_config_from`,                                 // Devin's switch for the Claude Code hooks
+	`\.codex[\\/]+(?:config|hooks|requirements)\.`,     // Codex hook settings
 	`\.provguard\b`,
 	`\.pro[a-z0-9]*[*?\[]`, // a glob that can expand to .provguard
 	// A quoted subcommand or setting counts too (review finding:

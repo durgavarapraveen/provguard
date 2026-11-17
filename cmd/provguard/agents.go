@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/durgavarapraveen/provguard/internal/adapter/antigravity"
 	"github.com/durgavarapraveen/provguard/internal/adapter/codex"
 	"github.com/durgavarapraveen/provguard/internal/adapter/copilot"
 	"github.com/durgavarapraveen/provguard/internal/adapter/droid"
@@ -61,6 +62,12 @@ var otherAgents = []otherAgent{
 		present:   opencode.Present,
 		install:   opencode.Install,
 		uninstall: opencode.Uninstall,
+	},
+	{
+		name:      "Antigravity (app, CLI and IDE)",
+		present:   antigravity.Present,
+		install:   antigravity.Install,
+		uninstall: antigravity.Uninstall,
 	},
 }
 
