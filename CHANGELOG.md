@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+### Fixed (found by end-to-end testing before launch)
+- **Claude Code calls were taken for Devin's.** Claude Code 2.1.238 sends `prompt_id` in every hook call, which was how provguard recognized Devin, so Claude Code got answers in Devin's format. provguard now also checks for `transcript_path`, which Claude Code always sends and Devin does not.
+- **Antigravity denied every tool call** when provguard had no decision: Antigravity treats a PreToolUse reply without a decision as a denial. provguard now answers `{"decision":"allow"}`, which hands the call to Antigravity's own permission rules.
+- `install.ps1` installs with the defaults when there is no terminal (a CI job, a script), like `install.sh`. Before, it only showed the change and installed nothing.
+- Gemini CLI is no longer taken as installed when only Antigravity has created `~/.gemini`.
+- Tests that use Windows paths now run only on Windows, so the test suite passes on Linux and macOS.
+
+### Added
+- `scripts/e2e.sh` (Linux, macOS) and `scripts/e2e.ps1` (Windows) install a release in a throwaway home folder and test every agent's hooks, `doctor --live`, `check`, self-protection, hidden text, a repository policy, `demo`, `bench` and uninstall.
+
 ## v0.5.0 — hidden text, your own rules, team policy
 
 ### Added
