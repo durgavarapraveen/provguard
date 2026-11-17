@@ -9,8 +9,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/durgavarapraveen/provguard/internal/adapter/claudecode"
-	"github.com/durgavarapraveen/provguard/internal/event"
+	"github.com/durgavarapraveen/provguard/internal/adapter"
 	"github.com/durgavarapraveen/provguard/internal/install"
 )
 
@@ -60,12 +59,12 @@ func runCleanupHook(stdin io.Reader, stdout io.Writer, home string, now time.Tim
 		return 0 // not uninstalling (or already done): nothing to do
 	}
 	raw, _ := io.ReadAll(io.LimitReader(stdin, maxPayload))
-	if e, err := claudecode.Parse(raw, ""); err == nil && isTitled(home, e.SessionID) && e.Title != "" {
-		if clean := stripIcons(e.Title); clean != e.Title && (e.Kind == event.SessionBeg || e.Kind == event.UserPrompt) {
-			b, _ := json.Marshal(map[string]any{"hookSpecificOutput": map[string]any{
-				"hookEventName": e.RawEvent, "sessionTitle": clean,
-			}})
-			stdout.Write(b)
+	ad, body := adapter.ForPayload(raw)
+	if e, err := ad.Parse(body, ""); err == nil && isTitled(home, e.SessionID) && e.Title != "" {
+		if clean := stripIcons(e.Title); clean != e.Title {
+			if b := ad.Feedback(e, "", clean); b != nil {
+				stdout.Write(b)
+			}
 		}
 		markTitled(home, e.SessionID, false)
 	}

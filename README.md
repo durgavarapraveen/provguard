@@ -136,13 +136,16 @@ Method, per-case results and caveats (the traces are author-written; real-agent 
 
 ## Where it works
 
-| Where you use Claude | Protected? |
+| Agent | Protected? |
 |---|---|
 | Claude Code CLI | Yes |
 | Claude desktop app, Code tab | Yes (verified live) |
 | VS Code / JetBrains with Claude Code | Likely (same settings file); not tested yet |
+| Cursor (desktop app) | Yes, through Cursor's support for Claude Code hooks (*Settings → Agents → Third-Party Imports*, on by default); not tested live yet. Cursor does not act on "ask", so provguard blocks instead and offers `provguard allow`. Cloud agents do not run user-level hooks, and the Cursor CLI is reported not to run them. |
 | Claude desktop app, Chat with MCP servers | No: Chat does not run Claude Code hooks (planned MCP proxy) |
-| Cursor, Gemini CLI | Not yet (planned adapters) |
+| GitHub Copilot, Codex, Gemini CLI, Antigravity, Windsurf, Kiro, Factory Droid, OpenCode | Not yet (planned adapters) |
+
+Each agent has a small adapter in `internal/adapter/<agent>` that implements `core.Adapter`; the checks themselves are shared.
 
 ## All commands
 
@@ -213,6 +216,7 @@ provguard is one layer, not a sandbox. Read [docs/THREAT_MODEL.md](docs/THREAT_M
 - It cannot know values that exist only at run time, and the PowerShell analysis is a heuristic.
 - Instruction files that the agent loads by itself are invisible to hooks. provguard covers this only through `trusted_repo_owners`, `doctor` and the reverse-shell rule.
 - A cloned repo can turn all hooks off through its settings file before any hook runs ([finding F3](docs/FINDINGS.md)). Run `provguard doctor` first, or use managed settings in teams.
+- In Cursor, provguard runs only while *Third-Party Imports* is on. Cursor keeps that switch in its own settings, which provguard does not guard.
 - The install scripts check the binary against the release's own `SHA256SUMS`. That catches a broken download, not a compromised release.
 
 ## Docs
