@@ -10,6 +10,7 @@ import (
 	"github.com/durgavarapraveen/provguard/internal/adapter/claudecode"
 	"github.com/durgavarapraveen/provguard/internal/audit"
 	"github.com/durgavarapraveen/provguard/internal/config"
+	"github.com/durgavarapraveen/provguard/internal/install"
 	"github.com/durgavarapraveen/provguard/internal/store"
 )
 
@@ -37,7 +38,8 @@ When something was blocked:
 
 More:
   provguard doctor [dir] [--json]   check the hooks; scan a repo before you open it
-  provguard uninstall [--yes]       remove the hooks (settings and logs are kept)
+  provguard uninstall [--yes] [--now] [--keep-data]
+                                    remove provguard and ~/.provguard; marked session titles are restored
   provguard bench [--check] [--profiles P] [--cases IDs] [--out F] [--live --runs N --model M]
                                     the attack and false-positive benchmark
   provguard hook <EventName>        run as a Claude Code hook (JSON on stdin)
@@ -57,6 +59,13 @@ func main() {
 		ev := ""
 		if len(os.Args) > 2 {
 			ev = os.Args[2]
+		}
+		if ev == install.CleanupEvent {
+			home, err := audit.Home()
+			if err != nil {
+				os.Exit(0)
+			}
+			os.Exit(runCleanupHook(os.Stdin, os.Stdout, home, time.Now()))
 		}
 		os.Exit(runHook(os.Stdin, os.Stdout, ev))
 	case "init":

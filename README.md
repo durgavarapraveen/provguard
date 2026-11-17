@@ -154,7 +154,7 @@ Run `provguard help` for the full list.
 | `provguard reset [session\|latest] --yes` | Clear a session's untrusted label after you checked it |
 | `provguard doctor [dir] [--json]` | Check hook integrity; scan a repo for settings that turn hooks off, repo hooks, `.mcp.json` servers and risky instruction files. Exits 1 on HIGH. |
 | `provguard demo` | One normal task and two attacks, narrated, in a temp folder |
-| `provguard uninstall [--yes]` | Remove the hooks; settings and logs stay |
+| `provguard uninstall [--yes] [--now] [--keep-data]` | Turn protection off and remove provguard, `~/.provguard` included. Sessions whose title shows a trust icon get their old title back on your next message in them; then the last hook removes itself (at the latest after 30 days). `--now` removes everything at once and leaves the icons; `--keep-data` keeps logs and settings. |
 | `provguard bench [--check] [--live]` | The attack and false-positive benchmark |
 
 ## Configuration file
