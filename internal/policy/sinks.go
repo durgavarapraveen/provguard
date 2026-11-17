@@ -51,7 +51,7 @@ func ToolSinks(e event.Event, cfg config.Config) ([]shell.Sink, string) {
 		}
 		return []shell.Sink{{Class: shell.Persist, Detail: "path:" + where, Target: p}}, text
 
-	case e.ToolName == "apply_patch":
+	case e.ToolName == "apply_patch": // core.PatchTool (Codex, Devin)
 		// Codex's file edits: the adapter lists the files in "path".
 		files, _ := e.ToolInput["path"].([]any)
 		var sinks []shell.Sink

@@ -30,9 +30,6 @@ import (
 // Agent names events that came from Codex.
 const Agent = "codex"
 
-// PatchTool is Codex's file-editing tool.
-const PatchTool = "apply_patch"
-
 // Events provguard registers for.
 var Events = []string{"PreToolUse", "PostToolUse", "SessionStart", "UserPromptSubmit"}
 
@@ -54,15 +51,8 @@ func (Adapter) Parse(raw []byte, eventArg string) (event.Event, error) {
 	switch e.ToolName {
 	case "Bash":
 		e.ToolName = event.ShellTool
-	case PatchTool:
-		if patch, _ := e.ToolInput["command"].(string); patch != "" {
-			files := PatchFiles(patch)
-			paths := make([]any, len(files))
-			for i, f := range files {
-				paths[i] = f
-			}
-			e.ToolInput["path"] = paths // read by the file checks
-		}
+	case core.PatchTool:
+		core.AddPatchPaths(e.ToolInput, "command")
 	}
 	return e, nil
 }
@@ -80,24 +70,6 @@ func (Adapter) Feedback(e event.Event, notice, _ string) []byte {
 // CanAsk: Codex parses "ask" but does not support it yet; it marks the
 // hook as failed and runs the call.
 func (Adapter) CanAsk() bool { return false }
-
-// PatchFiles lists the files an apply_patch patch adds, updates, deletes or
-// moves to ("*** Add File: p", "*** Update File: p", "*** Delete File: p",
-// "*** Move to: p").
-func PatchFiles(patch string) []string {
-	var out []string
-	for _, line := range strings.Split(patch, "\n") {
-		line = strings.TrimSpace(line)
-		for _, prefix := range []string{"*** Add File:", "*** Update File:", "*** Delete File:", "*** Move to:"} {
-			if p, ok := strings.CutPrefix(line, prefix); ok {
-				if p = strings.TrimSpace(p); p != "" {
-					out = append(out, p)
-				}
-			}
-		}
-	}
-	return out
-}
 
 // Dir is Codex's home folder: $CODEX_HOME, or ~/.codex.
 func Dir() (string, error) {
