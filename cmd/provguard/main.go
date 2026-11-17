@@ -11,6 +11,7 @@ import (
 	"github.com/durgavarapraveen/provguard/internal/adapter/core"
 	"github.com/durgavarapraveen/provguard/internal/audit"
 	"github.com/durgavarapraveen/provguard/internal/config"
+	"github.com/durgavarapraveen/provguard/internal/event"
 	"github.com/durgavarapraveen/provguard/internal/install"
 	"github.com/durgavarapraveen/provguard/internal/store"
 )
@@ -73,7 +74,7 @@ func main() {
 			}
 			os.Exit(runCleanupHook(os.Stdin, os.Stdout, home, time.Now()))
 		}
-		os.Exit(runAgentHook(os.Stdin, os.Stdout, ev, agent))
+		os.Exit(runHookIO(os.Stdin, os.Stdout, os.Stderr, ev, agent))
 	case "init":
 		os.Exit(runInstall(os.Args[2:], true))
 	case "uninstall":
@@ -144,19 +145,36 @@ func runHook(stdin io.Reader, stdout io.Writer, eventArg string) int {
 
 // runAgentHook runs one hook call. agent names the sender when the hook
 // command says so (--agent); otherwise the payload decides.
-func runAgentHook(stdin io.Reader, stdout io.Writer, eventArg, agent string) (code int) {
+func runAgentHook(stdin io.Reader, stdout io.Writer, eventArg, agent string) int {
+	return runHookIO(stdin, stdout, io.Discard, eventArg, agent)
+}
+
+// hookOutput is where a hook call writes, and the exit code it ends with:
+// the adapter decides (most agents read JSON on stdout and exit 0; Kiro
+// blocks on a non-zero exit with the reason on stderr).
+type hookOutput struct {
+	stdout, stderr io.Writer
+	code           int
+}
+
+// runHookIO is runAgentHook with the hook's stderr. It returns the exit
+// code the agent's adapter asked for; any internal error fails open, except
+// where failClosedReason says to deny.
+func runHookIO(stdin io.Reader, stdout, stderr io.Writer, eventArg, agent string) (code int) {
 	start := time.Now()
+	out := &hookOutput{stdout: stdout, stderr: stderr}
 	ad := adapter.Default()
+	preTool := eventArg == "PreToolUse"
 	rec := audit.Record{Agent: ad.Name(), Event: eventArg, Decision: "none"}
 	defer func() {
 		if p := recover(); p != nil {
 			rec.Error = fmt.Sprintf("panic: %v", p)
 		}
-		if rec.Error != "" && rec.Event == "PreToolUse" && rec.Decision == "none" {
+		if rec.Error != "" && preTool && rec.Decision == "none" {
 			if home, err := audit.Home(); err == nil {
 				if cfg, err := config.Load(home); err == nil {
 					if why := failClosedReason(cfg, home, rec.SessionID); why != "" {
-						respond(stdout, &rec, ad, core.Deny, "fail_closed",
+						respond(out, &rec, ad, core.Deny, "fail_closed",
 							"provguard (fail_closed): the security check could not run ("+oneLine(rec.Error, 120)+"), "+why+".")
 					}
 				}
@@ -167,7 +185,7 @@ func runAgentHook(stdin io.Reader, stdout io.Writer, eventArg, agent string) (co
 		if home, err := audit.Home(); err == nil {
 			_ = audit.Write(home, rec)
 		}
-		code = 0
+		code = out.code
 	}()
 
 	raw, err := io.ReadAll(io.LimitReader(stdin, maxPayload))
@@ -182,8 +200,9 @@ func runAgentHook(stdin io.Reader, stdout io.Writer, eventArg, agent string) (co
 		rec.Error = err.Error()
 		return 0
 	}
+	preTool = e.Kind == event.PreTool
 	rec = audit.FromEvent(e)
 	rec.Decision = "none"
-	handle(ad, e, stdout, &rec)
+	handle(ad, e, out, &rec)
 	return 0
 }

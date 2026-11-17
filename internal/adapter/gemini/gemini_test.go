@@ -44,7 +44,8 @@ func TestParse(t *testing.T) {
 }
 
 func TestReplyAndFeedback(t *testing.T) {
-	b, _ := Adapter{}.Reply(core.Deny, "no")
+	r, _ := Adapter{}.Reply(core.Deny, "no")
+	b := r.Stdout
 	if string(b) != `{"decision":"deny","reason":"no"}` {
 		t.Errorf("reply %s", b)
 	}

@@ -27,14 +27,14 @@ import (
 // they never block the agent. ad writes every answer in the agent's own
 // format: decisions on tool calls, and a one-time notice or a new session
 // title when the session's trust state changed.
-func handle(ad core.Adapter, e event.Event, stdout io.Writer, rec *audit.Record) {
+func handle(ad core.Adapter, e event.Event, out *hookOutput, rec *audit.Record) {
 	var newTitle string
 	defer func() {
 		if e.Kind == event.PreTool {
 			return // tool calls get only decisions (respond)
 		}
 		if b := ad.Feedback(e, rec.Notice, newTitle); b != nil {
-			stdout.Write(b)
+			out.stdout.Write(b)
 		}
 	}()
 	home, err := audit.Home()
@@ -94,7 +94,7 @@ func handle(ad core.Adapter, e event.Event, stdout io.Writer, rec *audit.Record)
 		// Self-protection runs in every profile, including audit.
 		if cfg.SelfProtectOn() {
 			if v := protect.Check(e, home, an); v.Deny {
-				respond(stdout, rec, ad, core.Deny, v.Rule, v.Reason)
+				respond(out, rec, ad, core.Deny, v.Rule, v.Reason)
 				return
 			}
 		}
@@ -151,7 +151,7 @@ func handle(ad core.Adapter, e event.Event, stdout io.Writer, rec *audit.Record)
 			}
 		}
 		d := map[string]core.Decision{policy.Deny: core.Deny, policy.Ask: core.Ask}[r.Decision]
-		respond(stdout, rec, ad, d, r.Rule, policy.Message(r, r.Decision, token))
+		respond(out, rec, ad, d, r.Rule, policy.Message(r, r.Decision, token))
 		rec.Reason = r.Reason // the log keeps the technical reason
 	case event.PostTool, event.UserPrompt:
 		if err := applyLabels(home, cfg, e, rec); err != nil {
@@ -303,17 +303,21 @@ func untrustedRepoAtStart(home string, cfg config.Config, e event.Event, rec *au
 	})
 }
 
-// respond prints a decision on a tool call, in the agent's format, and
-// records it.
-func respond(stdout io.Writer, rec *audit.Record, ad core.Adapter, d core.Decision, rule, reason string) {
-	out, err := ad.Reply(d, reason)
-	if err == nil {
-		_, err = stdout.Write(out)
+// respond gives a decision on a tool call in the agent's format (stdout,
+// stderr and exit code, as its adapter says) and records it.
+func respond(out *hookOutput, rec *audit.Record, ad core.Adapter, d core.Decision, rule, reason string) {
+	r, err := ad.Reply(d, reason)
+	if err == nil && len(r.Stdout) > 0 {
+		_, err = out.stdout.Write(r.Stdout)
+	}
+	if err == nil && r.Stderr != "" {
+		_, err = io.WriteString(out.stderr, r.Stderr)
 	}
 	if err != nil {
 		rec.Error = err.Error()
 		return
 	}
+	out.code = r.ExitCode
 	rec.Decision, rec.Rule, rec.Reason = string(d), rule, reason
 }
 

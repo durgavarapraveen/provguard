@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/durgavarapraveen/provguard/internal/adapter/core"
@@ -38,7 +37,8 @@ func TestParsePostToolUseResult(t *testing.T) {
 }
 
 func TestReply(t *testing.T) {
-	b, _ := Adapter{}.Reply(core.Deny, "no")
+	r, _ := Adapter{}.Reply(core.Deny, "no")
+	b := r.Stdout
 	if string(b) != `{"permissionDecision":"deny","permissionDecisionReason":"no"}` {
 		t.Errorf("reply %s", b)
 	}
@@ -57,7 +57,7 @@ func TestInstallAndUninstall(t *testing.T) {
 	}
 	h := f.Hooks["PreToolUse"][0]
 	if h.Bash != `"C:/Users/me/.provguard/bin/provguard.exe" hook --agent copilot PreToolUse` ||
-		!strings.HasPrefix(h.PowerShell, `& "C:/Users/me/.provguard/bin/provguard.exe" hook --agent copilot`) || h.TimeoutSec != 10 {
+		h.PowerShell != `C:/Users/me/.provguard/bin/provguard.exe hook --agent copilot PreToolUse` || h.TimeoutSec != 10 {
 		t.Errorf("entry %+v", h)
 	}
 	if filepath.Base(p) != FileName {

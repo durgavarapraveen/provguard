@@ -16,10 +16,8 @@ package codex
 
 import (
 	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/durgavarapraveen/provguard/internal/adapter/claudecode"
 	"github.com/durgavarapraveen/provguard/internal/adapter/core"
@@ -58,8 +56,8 @@ func (Adapter) Parse(raw []byte, eventArg string) (event.Event, error) {
 }
 
 // Reply uses the hookSpecificOutput shape Codex shares with Claude Code.
-func (Adapter) Reply(d core.Decision, reason string) ([]byte, error) {
-	return claudecode.PreToolResponse(d, reason)
+func (Adapter) Reply(d core.Decision, reason string) (core.Response, error) {
+	return claudecode.Adapter{}.Reply(d, reason)
 }
 
 // Feedback: Codex shows systemMessage as a warning; it has no session title.
@@ -99,20 +97,6 @@ func HooksFile() (string, error) {
 	return filepath.Join(d, "hooks.json"), err
 }
 
-// command is the hook command line. Codex runs `command` with the user's
-// shell, and `commandWindows` on Windows; an unquoted path works in cmd,
-// PowerShell and sh alike, so it is used whenever the path has no space.
-func command(exe, ev string) (unix, windows string) {
-	exe = filepath.ToSlash(exe)
-	args := fmt.Sprintf("hook --agent %s %s", Agent, ev)
-	unix = fmt.Sprintf("%q %s", exe, args)
-	windows = exe + " " + args
-	if strings.ContainsAny(exe, " \t") {
-		windows = fmt.Sprintf("& %q %s", exe, args) // PowerShell
-	}
-	return unix, windows
-}
-
 // Install adds provguard's hooks to Codex's hooks.json, keeping any other
 // hooks there, and returns the file's path.
 func Install(exe string) (string, error) {
@@ -125,7 +109,7 @@ func Install(exe string) (string, error) {
 		return "", err
 	}
 	err = install.AddHooks(s, Events, func(ev string) map[string]any {
-		unix, windows := command(exe, ev)
+		unix, windows := core.HookCommand(exe, Agent, ev)
 		return map[string]any{
 			"type": "command", "command": unix, "commandWindows": windows,
 			"timeout": install.HookTimeoutSeconds, "statusMessage": "provguard: checking",
