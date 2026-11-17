@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.5.0 — hidden text, your own rules, team policy
 
 ### Added
 - Hidden-text detection: tool output that hides text from the user (Unicode tag characters, bidirectional overrides, runs of zero-width characters, or an HTML comment or invisible element with instructions to an AI) makes the session untrusted, even for a file in a trusted repository. In such a session, the asks for untrusted destinations and for lasting changes, remote code or unreadable code become blocks. The user gets a notice naming the trick.
