@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/durgavarapraveen/provguard/internal/adapter/core"
 	"github.com/durgavarapraveen/provguard/internal/event"
 	"github.com/durgavarapraveen/provguard/internal/install"
 )
@@ -25,7 +26,7 @@ const patch = `*** Begin Patch
 
 func TestPatchFiles(t *testing.T) {
 	want := []string{"src/app.go", ".github/workflows/ci.yml", "old.txt", "a.go", "b.go"}
-	if got := PatchFiles(patch); !reflect.DeepEqual(got, want) {
+	if got := core.PatchFiles(patch); !reflect.DeepEqual(got, want) {
 		t.Errorf("got %v", got)
 	}
 }

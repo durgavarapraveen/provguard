@@ -105,6 +105,25 @@ func settingsSegs(segs []string) bool {
 		segMatch(dir, "copilot") && n >= 3 && segMatch(segs[n-3], ".github")
 }
 
+// devinConfig: Devin's config files, which can hold hooks and
+// read_config_from (turning off read_config_from.claude stops Devin from
+// running the Claude Code hooks): .devin/config[.local].json in a project,
+// and devin/config.json in the user's config folder (~/.config/devin, or
+// %APPDATA%\devin on Windows). Only their guarded keys are protected.
+func devinConfig(segs []string) bool {
+	n := len(segs)
+	if n < 2 || !segMatch(segs[n-2], ".devin") && !segMatch(segs[n-2], "devin") {
+		return false
+	}
+	return segMatch(segs[n-1], "config.json") || segMatch(segs[n-1], "config.local.json")
+}
+
+// devinHooksFile: .devin/hooks.v1.json, a file of hooks only.
+func devinHooksFile(segs []string) bool {
+	n := len(segs)
+	return n >= 2 && segMatch(segs[n-2], ".devin") && segMatch(segs[n-1], "hooks.v1.json")
+}
+
 // codexConfig: a file in a .codex folder that can register hooks or turn
 // them off ([features] hooks = false in config.toml), user or project level.
 func codexConfig(segs []string) bool {
@@ -204,8 +223,10 @@ func protectedPath(p, op, home, cwd string, cds []string) string {
 		segs := strings.Split(path.Clean(norm(f)), "/")
 		last := segs[len(segs)-1]
 		switch {
-		case settingsSegs(segs):
+		case settingsSegs(segs) || devinConfig(segs):
 			return settingsReason
+		case devinHooksFile(segs):
+			return "Devin's hook configuration"
 		case (segMatch(last, "settings.json") || segMatch(last, "settings.local.json")) && cdIntoClaude(cds):
 			return settingsReason
 		case segMatch(last, ".claude"):
@@ -394,7 +415,8 @@ var guardedKeys = []string{
 	"hooks", "disableAllHooks", "allowManagedHooksOnly",
 	"env", "statusLine", "apiKeyHelper", "awsAuthRefresh", "awsCredentialExport",
 	"otelHeadersHelper", "enabledPlugins", "extraKnownMarketplaces",
-	"hooksConfig", // Gemini CLI: hooksConfig.enabled and hooksConfig.disabled turn hooks off
+	"hooksConfig",      // Gemini CLI: hooksConfig.enabled and hooksConfig.disabled turn hooks off
+	"read_config_from", // Devin: read_config_from.claude = false stops it running the Claude Code hooks
 }
 
 // protectedKeys returns a canonical form of the guarded keys of a settings file.
@@ -475,6 +497,8 @@ var protectedText = regexp.MustCompile(`(?i)` + strings.Join([]string{
 	`\.copilot[\\/]+(?:hooks|settings)`,            // Copilot hook files and settings
 	`\.github[\\/]+copilot[\\/]+settings`,          // Copilot repository settings
 	`\.gemini[\\/]+settings`,                       // Gemini CLI settings (hooks, hooksConfig)
+	`\.?devin[\\/]+(?:config|hooks\.v1)`,           // Devin config and hooks
+	`read_config_from`,                             // Devin's switch for the Claude Code hooks
 	`\.codex[\\/]+(?:config|hooks|requirements)\.`, // Codex hook settings
 	`\.provguard\b`,
 	`\.pro[a-z0-9]*[*?\[]`, // a glob that can expand to .provguard
