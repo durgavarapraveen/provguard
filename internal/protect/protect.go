@@ -86,6 +86,7 @@ const settingsReason = "an agent settings file"
 //   - .claude/settings*.json (Claude Code; Cursor and Copilot read it too),
 //   - .copilot/settings.json (Copilot, user level),
 //   - .github/copilot/settings*.json (Copilot, repository level).
+//   - .gemini/settings.json (Gemini CLI, user and project level).
 //
 // Segments may be glob patterns from the shell (".cla?de"), so they are
 // matched as patterns against the real names.
@@ -100,7 +101,7 @@ func settingsSegs(segs []string) bool {
 	// A folder computed at run time ("$(echo .claude)/settings.json",
 	// "$D/settings.json") may be any of them.
 	dir := segs[n-2]
-	return segMatch(dir, ".claude") || segMatch(dir, ".copilot") || strings.Contains(dir, "$") ||
+	return segMatch(dir, ".claude") || segMatch(dir, ".copilot") || segMatch(dir, ".gemini") || strings.Contains(dir, "$") ||
 		segMatch(dir, "copilot") && n >= 3 && segMatch(segs[n-3], ".github")
 }
 
@@ -393,6 +394,7 @@ var guardedKeys = []string{
 	"hooks", "disableAllHooks", "allowManagedHooksOnly",
 	"env", "statusLine", "apiKeyHelper", "awsAuthRefresh", "awsCredentialExport",
 	"otelHeadersHelper", "enabledPlugins", "extraKnownMarketplaces",
+	"hooksConfig", // Gemini CLI: hooksConfig.enabled and hooksConfig.disabled turn hooks off
 }
 
 // protectedKeys returns a canonical form of the guarded keys of a settings file.
@@ -469,9 +471,10 @@ var protectedText = regexp.MustCompile(`(?i)` + strings.Join([]string{
 	`disableAllHooks`,
 	`allowManagedHooksOnly`,
 	`\.claude[\\/]+settings(?:\.local)?\.json`,
-	`\.claude[\\/]+set[a-z0-9._]*[*?\[]`,  // a glob that can expand to a settings file
-	`\.copilot[\\/]+(?:hooks|settings)`,   // Copilot hook files and settings
-	`\.github[\\/]+copilot[\\/]+settings`, // Copilot repository settings
+	`\.claude[\\/]+set[a-z0-9._]*[*?\[]`,           // a glob that can expand to a settings file
+	`\.copilot[\\/]+(?:hooks|settings)`,            // Copilot hook files and settings
+	`\.github[\\/]+copilot[\\/]+settings`,          // Copilot repository settings
+	`\.gemini[\\/]+settings`,                       // Gemini CLI settings (hooks, hooksConfig)
 	`\.codex[\\/]+(?:config|hooks|requirements)\.`, // Codex hook settings
 	`\.provguard\b`,
 	`\.pro[a-z0-9]*[*?\[]`, // a glob that can expand to .provguard
