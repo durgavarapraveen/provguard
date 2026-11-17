@@ -9,6 +9,7 @@ import (
 	"github.com/durgavarapraveen/provguard/internal/adapter/droid"
 	"github.com/durgavarapraveen/provguard/internal/adapter/gemini"
 	"github.com/durgavarapraveen/provguard/internal/adapter/kiro"
+	"github.com/durgavarapraveen/provguard/internal/adapter/opencode"
 	"github.com/durgavarapraveen/provguard/internal/install"
 )
 
@@ -54,6 +55,12 @@ var otherAgents = []otherAgent{
 		present:   droid.Present,
 		install:   droid.Install,
 		uninstall: droid.Uninstall,
+	},
+	{
+		name:      "OpenCode",
+		present:   opencode.Present,
+		install:   opencode.Install,
+		uninstall: opencode.Uninstall,
 	},
 }
 
