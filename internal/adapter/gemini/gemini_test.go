@@ -3,6 +3,7 @@ package gemini
 import (
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -86,5 +87,21 @@ func TestInstallKeepsSettings(t *testing.T) {
 	}
 	if b, _ := os.ReadFile(p); strings.Contains(string(b), "provguard") || !strings.Contains(string(b), "notify") {
 		t.Errorf("after uninstall:\n%s", b)
+	}
+}
+
+// Antigravity also uses ~/.gemini: its folders alone do not mean Gemini CLI.
+func TestPresentNeedsGeminiCLIFiles(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("GEMINI_CLI_HOME", home)
+	for _, d := range []string{"antigravity", "antigravity-ide", "bin", "config", "logs"} {
+		os.MkdirAll(filepath.Join(home, ".gemini", d), 0o700)
+	}
+	if Present() {
+		t.Error("Antigravity's folders were taken for Gemini CLI")
+	}
+	os.WriteFile(filepath.Join(home, ".gemini", "installation_id"), []byte("x"), 0o600)
+	if !Present() {
+		t.Error("Gemini CLI not found")
 	}
 }

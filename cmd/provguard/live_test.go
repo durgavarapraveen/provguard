@@ -28,6 +28,7 @@ func liveSetup(t *testing.T) (settings, home string) {
 	t.Setenv("COPILOT_HOME", dir("copilot"))
 	t.Setenv("CODEX_HOME", dir("codex"))
 	t.Setenv("GEMINI_CLI_HOME", filepath.Dir(dir("gemini-home/.gemini")))
+	os.WriteFile(filepath.Join(root, "gemini-home", ".gemini", "installation_id"), []byte("x"), 0o600)
 	t.Setenv("PROVGUARD_KIRO_HOME", dir("kiro"))
 	t.Setenv("PROVGUARD_FACTORY_HOME", dir("factory"))
 	t.Setenv("PROVGUARD_OPENCODE_HOME", dir("opencode"))

@@ -71,7 +71,9 @@ try {
         & $bin version
         return
     }
-    & $bin init
+    # The setup asks questions in a terminal. Without one (a CI job, a
+    # script) it could only show the change, so install with the defaults.
+    if ([Console]::IsInputRedirected) { & $bin init --yes } else { & $bin init }
     if ($LASTEXITCODE -ne 0) { Fail "provguard init failed (exit $LASTEXITCODE)" }
 
     # A terminal reads PATH when it starts, so the setup's change reaches
