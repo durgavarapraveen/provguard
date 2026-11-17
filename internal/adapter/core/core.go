@@ -49,6 +49,11 @@ type Adapter interface {
 	// the user. When it does not, provguard denies instead, because an
 	// ignored Ask lets the call run.
 	CanAsk() bool
+	// Probe returns a PreToolUse call in the agent's own format that writes
+	// to path, and the event name its installed hook is run with.
+	// provguard doctor --live sends it through the hook to check that
+	// provguard blocks it in that agent's reply format.
+	Probe(path string) (eventName string, payload []byte)
 }
 
 // AlwaysReplies is an Adapter whose agent needs output from every hook call

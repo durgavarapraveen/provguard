@@ -40,7 +40,9 @@ When something was blocked:
                                     clear a session's untrusted label
 
 More:
+  provguard check "<command>"       what provguard would do with a command (--untrusted, --secrets)
   provguard doctor [dir] [--json]   check the hooks; scan a repo before you open it
+  provguard doctor --live           send a test call through each installed agent's hook
   provguard uninstall [--yes] [--now] [--keep-data]
                                     remove provguard and ~/.provguard; marked session titles are restored
   provguard bench [--check] [--profiles P] [--cases IDs] [--out F] [--live --runs N --model M]
@@ -92,6 +94,8 @@ func main() {
 		os.Exit(runConfig(os.Args[2:], os.Stdout, os.Stderr))
 	case "bench":
 		os.Exit(runBench(os.Args[2:], os.Stdout))
+	case "check":
+		os.Exit(runCheck(os.Args[2:], os.Stdout, os.Stderr))
 	case "doctor":
 		os.Exit(runDoctor(os.Args[2:], os.Stdout))
 	case "demo":

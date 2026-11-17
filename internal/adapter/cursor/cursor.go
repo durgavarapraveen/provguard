@@ -177,6 +177,12 @@ func (Adapter) Reply(d core.Decision, reason string) (core.Response, error) {
 // Feedback: Cursor has no notice or session-title output for hooks.
 func (Adapter) Feedback(event.Event, string, string) []byte { return nil }
 
+// Probe: a Write with cursor_version, which tells Cursor's payloads apart.
+func (Adapter) Probe(path string) (string, []byte) {
+	return "PreToolUse", core.ProbePayload("preToolUse", "Write", map[string]any{"file_path": path, "content": "x"},
+		map[string]any{"cursor_version": "probe", "conversation_id": core.ProbeSession})
+}
+
 // CanAsk: preToolUse accepts "ask" but does not act on it today, so the
 // call would run ("ask is accepted by the schema but not enforced").
 func (Adapter) CanAsk() bool { return false }

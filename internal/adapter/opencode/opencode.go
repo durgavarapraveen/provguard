@@ -87,6 +87,11 @@ func (Adapter) Reply(_ core.Decision, reason string) (core.Response, error) {
 // Feedback: the plugin does not show stdout to the user.
 func (Adapter) Feedback(event.Event, string, string) []byte { return nil }
 
+// Probe: a write as provguard's plugin sends it.
+func (Adapter) Probe(path string) (string, []byte) {
+	return "PreToolUse", core.ProbePayload("PreToolUse", "write", map[string]any{"filePath": path, "content": "x"}, nil)
+}
+
 // CanAsk: a plugin hook can only let a tool call run or block it.
 func (Adapter) CanAsk() bool { return false }
 

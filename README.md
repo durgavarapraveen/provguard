@@ -75,6 +75,8 @@ Details: provguard explain latest.
 | Trust repos of your team | `provguard config trust-owner my-org` |
 | See what was stopped this week | `provguard review` |
 | Try it safely first | `provguard demo` |
+| See what provguard would do with a command | `provguard check "terraform destroy"` |
+| Check that each agent's hook works | `provguard doctor --live` |
 | Turn it off | `provguard uninstall --yes` |
 
 Your agent can read the settings with `provguard config`, but only you can change them: provguard blocks agents from running `init`, `uninstall`, `config <setting>`, `allow` and `reset`.
@@ -109,7 +111,7 @@ Regex guards check one command at a time and remember nothing about what the age
 | 2 | Data can leave while the session is both untrusted and sensitive (the "lethal trifecta") | deny |
 | 3 | Data goes to a host or URL taken from untrusted content | ask |
 | 4 | Lasting change, remote code or unreadable code after untrusted input | ask |
-| 5 | Reverse shell, or risky deletion (outside the project, history rewrites on shared branches, remote deletes) | ask |
+| 5 | Reverse shell, or risky deletion: outside the project, history rewrites on shared branches, remote deletes, `terraform destroy`, cluster-wide `kubectl delete`, `helm uninstall`, cloud deletes (`aws … delete-*`, `gcloud … delete`), container volumes, `DROP TABLE` / `TRUNCATE` / `DELETE` without `WHERE`, `FLUSHALL`, writing a disk with `dd` | ask |
 | 6 | Anything else | no decision (normal Claude Code permissions) |
 
 4. **Overrides.** `provguard allow <token>` lets one exact call through once, within 10 minutes; the token is an HMAC with your install key, so an agent cannot make one for a call that was never blocked. `allow-host` exempts your own hosts from rules 1 and 2; a host taken from untrusted content is never offered in the message. `on-block ask` turns rules 1 and 2 into Claude Code's approval prompt in Protect mode.
@@ -176,6 +178,8 @@ Run `provguard help` for the full list.
 | `provguard allow <token>` | Let one blocked call through once |
 | `provguard explain [session\|latest]` | Why a session is untrusted or sensitive, and every policy hit |
 | `provguard reset [session\|latest] --yes` | Clear a session's untrusted label after you checked it |
+| `provguard check [--untrusted] [--secrets] "<command>"` | What provguard would do with a shell command, and why, without running it. Exit code 0 when allowed, 1 when it would ask or block. `--json` for scripts. |
+| `provguard doctor --live` | Send a test write to a protected file through each installed agent's hook and check that provguard blocks it in that agent's reply format |
 | `provguard doctor [dir] [--json]` | Check hook integrity; scan a repo for settings that turn hooks off, repo hooks, `.mcp.json` servers and risky instruction files. Exits 1 on HIGH. |
 | `provguard demo` | One normal task and two attacks, narrated, in a temp folder |
 | `provguard uninstall [--yes] [--now] [--keep-data]` | Turn protection off and remove provguard, `~/.provguard` included. Sessions whose title shows a trust icon get their old title back on your next message in them; then the last hook removes itself (at the latest after 30 days). `--now` removes everything at once and leaves the icons; `--keep-data` keeps logs and settings. |
