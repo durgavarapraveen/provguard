@@ -1,0 +1,48 @@
+# Push a tag vX.Y.Z (after the CHANGELOG has a "## vX.Y.Z" section) to
+# build the binaries, sign their build provenance and publish the release.
+name: Release
+on:
+  push:
+    tags: ["v*"]
+permissions:
+  contents: write     # create the release
+  id-token: write     # sign with Sigstore
+  attestations: write # store the provenance
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Build (after vet, tests and benchmark)
+        run: bash scripts/release.sh "${GITHUB_REF_NAME#v}"
+      - name: Sign build provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: "dist/provguard_*"
+      - name: Release notes from the CHANGELOG
+        run: |
+          awk -v v="## ${GITHUB_REF_NAME}" 'index($0, v) == 1 {on = 1; next} on && /^## / {exit} on' CHANGELOG.md > notes.md
+          test -s notes.md || { echo "CHANGELOG.md has no section for ${GITHUB_REF_NAME}"; exit 1; }
+          cat >> notes.md <<'EOF'
+
+          ## Install or update
+
+          Windows PowerShell:
+          ```powershell
+          irm https://raw.githubusercontent.com/durgavarapraveen/provguard/main/scripts/install.ps1 | iex
+          ```
+          macOS, Linux, Git Bash:
+          ```bash
+          curl -fsSL https://raw.githubusercontent.com/durgavarapraveen/provguard/main/scripts/install.sh | sh
+          ```
+          Then check each agent with `provguard doctor --live`.
+
+          Verify a download: `gh attestation verify <file> --repo durgavarapraveen/provguard`
+          EOF
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" dist/provguard_* dist/SHA256SUMS --title "provguard ${GITHUB_REF_NAME#v}" --notes-file notes.md --verify-tag

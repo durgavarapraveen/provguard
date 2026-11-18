@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+### Added
+- CI on Linux (x64, ARM), macOS (Apple Silicon, Intel) and Windows: vet, tests, the benchmark and the end-to-end install test on every push and pull request.
+- Release workflow: pushing a tag builds the binaries, signs their build provenance with Sigstore (`gh attestation verify <file> --repo durgavarapraveen/provguard`) and publishes the release with notes from this file.
+- `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, issue templates (bug, false positive, new agent; bypasses go to private reporting) and a pull request template.
+- README: a short opening for the 10 agents, badges, and an animated demo (`docs/demo.svg`).
+
 ## v0.5.1 — fixes found by end-to-end testing
 
 ### Fixed (found by end-to-end testing before launch)

@@ -1,0 +1,23 @@
+name: Support a new coding agent
+description: Ask for provguard to protect another coding agent.
+labels: ["new agent", "enhancement"]
+body:
+  - type: input
+    id: agent
+    attributes:
+      label: Agent
+      placeholder: Amp, Zed, Cline, ...
+    validations:
+      required: true
+  - type: input
+    id: docs
+    attributes:
+      label: Link to the agent's hook or plugin documentation
+      description: provguard needs a hook that runs before each tool call and can block it.
+    validations:
+      required: true
+  - type: textarea
+    id: notes
+    attributes:
+      label: Anything else
+      description: Which events it has, how it blocks a call, where its hook files live.

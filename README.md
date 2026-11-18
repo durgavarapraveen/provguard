@@ -1,12 +1,22 @@
 # provguard
 
-**A runtime firewall for AI coding agents.** provguard tracks where an agent's context comes from (a web page, a GitHub issue, a third-party repo, your `.env`) and blocks the dangerous tool calls that untrusted content drives: sending secrets out, persistence, remote code, and turning provguard off.
+[![CI](https://github.com/durgavarapraveen/provguard/actions/workflows/ci.yml/badge.svg)](https://github.com/durgavarapraveen/provguard/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/durgavarapraveen/provguard)](https://github.com/durgavarapraveen/provguard/releases/latest)
+[![License](https://img.shields.io/github/license/durgavarapraveen/provguard)](LICENSE)
+[![Go](https://img.shields.io/github/go-mod/go-version/durgavarapraveen/provguard)](go.mod)
 
-It works through Claude Code's hooks, so it needs no change to the agent.
+**A runtime firewall for AI coding agents.** An agent that reads untrusted content (a web page, a GitHub issue, a cloned repo) and also holds your secrets can be turned against you by one hidden instruction. provguard tracks where the agent's context came from and stops the tool calls that untrusted content drives: sending secrets out, lasting changes, remote code, destructive commands, and turning provguard off.
+
+- **10 agents, one install:** Claude Code, Cursor, GitHub Copilot, OpenAI Codex, Gemini CLI, Devin, Kiro, Factory Droid, OpenCode and Antigravity. provguard uses each agent's own hooks; the agent needs no change.
+- **Local and private:** one Go binary on Windows, macOS and Linux. Nothing leaves your computer, and secrets are kept only as HMAC fingerprints.
+- **Measured:** in Protect mode it blocks 13 of the 17 benchmark attacks and asks you about the other 4, with 0 false positives in 86 normal calls. See [Benchmark](#benchmark).
+
+<p align="center"><img src="docs/demo.svg" width="860" alt="provguard blocks an agent that read .env and a poisoned GitHub issue from sending .env to an attacker, and blocks an attempt to turn provguard off, while normal work runs"></p>
+<p align="center"><sub>Shortened output of <code>provguard demo</code>, which replays these calls through the real hook in a temp folder.</sub></p>
 
 ## Get started in one minute
 
-**1. Install.** One line, then answer three questions.
+**1. Install.** One line, then answer a few questions.
 
 macOS, Linux, Git Bash:
 
@@ -54,7 +64,9 @@ Type all, or numbers separated by commas [all]: 1,3,10
 
 From source instead (Go 1.26+): `go install github.com/durgavarapraveen/provguard/cmd/provguard@latest`, then `provguard init`.
 
-**2. Work as usual.** Nothing changes until something risky happens. Then Claude Code shows:
+Releases from v0.5.2 on carry signed build provenance (Sigstore). To check that a binary was built from this repository by its release workflow, run `gh attestation verify <file> --repo durgavarapraveen/provguard`.
+
+**2. Work as usual.** Nothing changes until something risky happens. Then your agent shows:
 
 ```text
 provguard stopped this: this call can send data out, and the agent has read both
@@ -288,7 +300,7 @@ provguard is one layer, not a sandbox. Read [docs/THREAT_MODEL.md](docs/THREAT_M
 - Instruction files that the agent loads by itself are invisible to hooks. provguard covers this only through `trusted_repo_owners`, `doctor` and the reverse-shell rule.
 - A cloned repo can turn all hooks off through its settings file before any hook runs ([finding F3](docs/FINDINGS.md)). Run `provguard doctor` first, or use managed settings in teams.
 - In Cursor, provguard runs only while *Third-Party Imports* is on. Cursor keeps that switch in its own settings, which provguard does not guard.
-- The install scripts check the binary against the release's own `SHA256SUMS`. That catches a broken download, not a compromised release.
+- The install scripts check the binary against the release's own `SHA256SUMS`. That catches a broken download, not a compromised release. For that, check the signed build provenance with `gh attestation verify` (releases from v0.5.2 on).
 
 ## Docs
 

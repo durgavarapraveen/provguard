@@ -1,0 +1,35 @@
+name: Bug
+description: Something in provguard does not work (install, a command, an agent).
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        A way around provguard is a security bug: report it privately (Security → Report a vulnerability).
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what you expected
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. provguard init
+        2. ...
+    validations:
+      required: true
+  - type: textarea
+    id: doctor
+    attributes:
+      label: Output of provguard doctor --live
+      render: text
+  - type: input
+    id: versions
+    attributes:
+      label: Versions
+      placeholder: provguard 0.5.1, Cursor 2.x, macOS 15
+    validations:
+      required: true

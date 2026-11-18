@@ -33,11 +33,13 @@ $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 $home2 = Join-Path ([IO.Path]::GetTempPath()) ("provguard-e2e-" + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory $home2 | Out-Null
 $saved = @{}
-foreach ($v in 'USERPROFILE', 'HOME', 'PROVGUARD_HOME', 'CODEX_HOME', 'COPILOT_HOME', 'GEMINI_CLI_HOME', 'XDG_CONFIG_HOME', 'PROVGUARD_VERSION') {
+foreach ($v in 'USERPROFILE', 'HOME', 'PSModuleAnalysisCachePath', 'PROVGUARD_HOME', 'CODEX_HOME', 'COPILOT_HOME', 'GEMINI_CLI_HOME', 'XDG_CONFIG_HOME', 'PROVGUARD_VERSION') {
     $saved[$v] = [Environment]::GetEnvironmentVariable($v, 'Process')
 }
 try {
     $env:USERPROFILE = $home2; $env:HOME = $home2
+    # PowerShell writes its module cache under the home folder it finds; keep it in the throwaway one.
+    $env:PSModuleAnalysisCachePath = Join-Path $home2 'ModuleAnalysisCache'
     foreach ($v in 'PROVGUARD_HOME', 'CODEX_HOME', 'COPILOT_HOME', 'GEMINI_CLI_HOME', 'XDG_CONFIG_HOME') { Remove-Item "env:$v" -ErrorAction SilentlyContinue }
     if ($Version) { $env:PROVGUARD_VERSION = $Version }
     foreach ($d in '.claude', '.codex', '.copilot', '.gemini\antigravity', '.kiro', '.factory', '.config\opencode') {
