@@ -15,6 +15,9 @@ import (
 
 const pathTag = "# added by provguard"
 
+// userPathFoldCase: PATH entries are case-sensitive on macOS and Linux.
+const userPathFoldCase = false
+
 // shellStartFile returns the start-up file of the user's login shell and the
 // line that puts dir on PATH there.
 func shellStartFile(home, shell, dir string) (file, line string) {
