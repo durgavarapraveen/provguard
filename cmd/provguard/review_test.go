@@ -48,6 +48,35 @@ func TestReviewAuditMode(t *testing.T) {
 	}
 }
 
+// review shows the sessions' trust states and where to see why, because
+// many agents (and the Claude desktop app) do not show provguard's notice.
+func TestReviewSessionStates(t *testing.T) {
+	now := time.Now()
+	recs := []audit.Record{
+		{Time: now, Event: "PostToolUse", SessionID: "a", SessionTainted: true},
+		{Time: now, Event: "PostToolUse", SessionID: "b", SessionSensitive: true},
+		{Time: now, Event: "PostToolUse", SessionID: "c", SessionTainted: true},
+		{Time: now, Event: "PostToolUse", SessionID: "c", SessionSensitive: true}, // c became both
+		{Time: now, Event: "PostToolUse", SessionID: "d"},
+	}
+	rv := buildReview(recs, 7)
+	if rv.untrusted != 1 || rv.sensitive != 1 || rv.both != 1 {
+		t.Fatalf("states %+v", rv)
+	}
+	var out bytes.Buffer
+	printReview(&out, rv, config.Balanced)
+	for _, want := range []string{"1 🟡 untrusted, 1 🟠 sensitive, 1 🔴 both", "provguard explain latest"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("review lacks %q:\n%s", want, out.String())
+		}
+	}
+	out.Reset()
+	printReview(&out, buildReview(recs[4:], 7), config.Balanced)
+	if strings.Contains(out.String(), "Session states") {
+		t.Errorf("clean sessions need no states line:\n%s", out.String())
+	}
+}
+
 func TestReviewAdvice(t *testing.T) {
 	empty := review{sessions: 2}
 	if a := reviewAdvice(empty, config.Audit); !strings.Contains(a, "mode balanced") {

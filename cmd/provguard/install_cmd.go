@@ -251,6 +251,7 @@ func (r installRun) uninstall() int {
 	if install.Remove(s) == 0 {
 		if _, ok := readPending(r.home); ok && r.write && r.now {
 			// The cleanup was already pending in another settings file.
+			titleNote(r.out, titledTitles(r.home), false, false)
 			return r.finishNow()
 		}
 		if r.write {
@@ -259,7 +260,7 @@ func (r installRun) uninstall() int {
 		fmt.Fprintln(r.out, "No provguard hooks found in", r.settings)
 		return 0
 	}
-	titled := titledSessions(r.home)
+	titled := titledTitles(r.home)
 	cleanup := len(titled) > 0 && !r.now && exe != ""
 	if cleanup {
 		if err := install.AddCleanup(s, exe); err != nil {
@@ -268,6 +269,7 @@ func (r installRun) uninstall() int {
 	}
 	if !r.write {
 		fmt.Fprintf(r.out, "Settings file: %s\n\n--- hooks before ---\n%s\n\n--- hooks after ---\n%s\n\n", r.settings, before, install.HooksJSON(s))
+		titleNote(r.out, titled, cleanup, !r.write)
 		fmt.Fprintln(r.out, "No change written. Run again with --yes to apply.")
 		return 0
 	}
@@ -282,17 +284,40 @@ func (r installRun) uninstall() int {
 	}
 	uninstallAgents(r.out)
 	fmt.Fprintln(r.out, "provguard is off: nothing is checked or blocked any more.")
+	titleNote(r.out, titled, cleanup, !r.write)
 	if cleanup {
-		fmt.Fprintf(r.out, `
-%s still show a trust icon (🔴 🟡 🟠) in the title. Only a hook inside a
-session can change its title, so one small cleanup hook stays: your next
-message in each of those sessions removes the icon. When all are clean, or
-after 30 days, the hook removes itself and %s.
-To remove everything now instead (titles keep their icon): provguard uninstall --now --yes
-`, plural(len(titled), "session"), r.dataNote())
+		fmt.Fprintf(r.out, "When all are clean, or after 30 days, the cleanup hook removes itself and %s.\n", r.dataNote())
 		return 0
 	}
 	return r.finishNow()
+}
+
+// titleNote names the sessions whose title still carries a trust icon, and
+// says how each gets its old title back. An agent's app owns its session
+// titles: provguard can change one only through a hook answer while a
+// message is sent in that session, so it cannot clean them at uninstall.
+func titleNote(w io.Writer, titles []string, cleanup, preview bool) {
+	if len(titles) == 0 {
+		return
+	}
+	fmt.Fprintf(w, "\n%s may still show a trust icon in the title:\n", plural(len(titles), "session"))
+	for _, t := range titles {
+		fmt.Fprintf(w, "  %s\n", t)
+	}
+	if cleanup {
+		fmt.Fprintln(w, "A title changes only when you send a message in that session, so one small cleanup hook stays:")
+		fmt.Fprintln(w, "your next message in each of these sessions removes the icon. Or rename the session yourself.")
+		fmt.Fprintln(w, "To remove everything now instead, run provguard uninstall --now --yes: these titles then keep")
+		fmt.Fprintln(w, "their icon until you rename them yourself.")
+	} else {
+		fmt.Fprintln(w, "These titles keep their icon: rename each session yourself (in the Claude desktop app,")
+		fmt.Fprintln(w, "right-click it in the sidebar and choose Rename).")
+		if preview {
+			fmt.Fprintln(w, "To have the icons removed for you instead, run provguard uninstall --yes without --now:")
+			fmt.Fprintln(w, "your next message in each session then removes the icon.")
+		}
+	}
+	fmt.Fprintln(w)
 }
 
 // finishNow removes what is left: the pending marker and, unless --keep-data,

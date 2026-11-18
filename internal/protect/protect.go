@@ -42,7 +42,8 @@ func Check(e event.Event, home string, an *shell.Analysis) Verdict {
 	switch e.ToolName {
 	case "Read", "Grep", "NotebookRead":
 		for _, k := range []string{"file_path", "path", "notebook_path"} {
-			if p, _ := e.ToolInput[k].(string); p != "" && secretPath(p, home, e.Cwd, true) {
+			// Grep on the folder itself searches the key's contents too.
+			if p, _ := e.ToolInput[k].(string); p != "" && (secretPath(p, home, e.Cwd, nil, true) || homeFolder(p, home, e.Cwd)) {
 				return deny("self_protect_secret", "blocked reading provguard's key or session files ("+p+")")
 			}
 		}
@@ -333,7 +334,7 @@ var listOnly = map[string]bool{"ls": true, "dir": true, "get-childitem": true, "
 // secretPath: provguard's HMAC key or its session files (which hold secret
 // fingerprints and the taint history). Reads are blocked as well as writes,
 // so an agent cannot learn the key or forge session state.
-func secretPath(p, home, cwd string, deep bool) bool {
+func secretPath(p, home, cwd string, cds []string, deep bool) bool {
 	lp := strings.ToLower(p)
 	if strings.Contains(lp, "://") {
 		return false // URLs
@@ -342,16 +343,19 @@ func secretPath(p, home, cwd string, deep bool) bool {
 	// that can be the key or a session file (base "key", or a path naming
 	// sessions or provguard) and, when deep is set, for any name at all.
 	// The name test alone misses a junction or symlink with another name
-	// that points into the folder, so the resolved path is checked too. The tools that read one named file ask for the deep check; a
-	// shell command's arguments share a budget, because there can be many.
+	// that points into the folder, so the resolved path is checked too.
+	// The tools that read one named file ask for the deep check; a shell
+	// command's arguments share a budget, because there can be many.
 	base := path.Base(shell.NormPath(p))
 	cheap := base == "key" || strings.Contains(lp, "session") || strings.Contains(lp, "provguard")
 	if !cheap && !deep {
 		return false
 	}
-	for _, f := range pathForms(p, cwd, nil) {
-		n := path.Clean(shell.NormPath(f))
-		if strings.Contains(n, ".provguard/key") || strings.Contains(n, ".provguard/sessions") {
+	// cds: a relative name read after cd (cd ~/.provguard && cat key).
+	for _, f := range pathForms(p, cwd, cds) {
+		// A shell argument may be a glob (~/.provguard/*, k?y, .prov*/key):
+		// each part is matched as a pattern against the real names.
+		if secretPattern(strings.Split(path.Clean(shell.NormPath(f)), "/"), home) {
 			return true
 		}
 		for _, h := range []string{home, canonical(home, "")} {
@@ -364,6 +368,77 @@ func secretPath(p, home, cwd string, deep bool) bool {
 		}
 	}
 	return false
+}
+
+// secretPattern: path segments, each possibly a glob, that can name the key
+// or the sessions folder: under a folder matching ".provguard", or under
+// provguard's home when it has another name (PROVGUARD_HOME).
+func secretPattern(segs []string, home string) bool {
+	secretNext := func(i int) bool {
+		return i < len(segs) && (segMatch(segs[i], "key") || segMatch(segs[i], "sessions"))
+	}
+	for i, s := range segs {
+		if segMatch(s, ".provguard") && secretNext(i+1) {
+			return true
+		}
+	}
+	h := strings.Split(path.Clean(shell.NormPath(home)), "/")
+	if home == "" || len(segs) <= len(h) {
+		return false
+	}
+	for i, s := range h {
+		if !segMatch(segs[i], s) {
+			return false
+		}
+	}
+	return secretNext(len(h))
+}
+
+// homeMention finds a path to provguard's folder in a shell command, and
+// the part right after it (the name inside the folder, if any).
+var homeMention = regexp.MustCompile(`(?i)[\\/]\.provguard\b([\\/]+[^\s'"\\/;|&()<>:,=` + "`" + `]*)?`)
+
+// globMention: a glob that can expand to provguard's folder (.prov*, .pro?guard).
+var globMention = regexp.MustCompile(`(?i)[\\/]\.pro[a-z0-9]*[*?\[]`)
+
+// harmless: parts of provguard's folder with nothing secret in them.
+var harmless = map[string]bool{"bin": true, "audit": true, "config.json": true, "titled": true}
+
+// navigation commands change folder but read nothing.
+var navigation = map[string]bool{"cd": true, "pushd": true, "popd": true, "chdir": true, "set-location": true, "sl": true, "push-location": true, "pop-location": true}
+
+// secretMention reports a shell command that names provguard's folder in a
+// way that can reach the key or the session files: the folder itself (tar,
+// zip, grep -r, Copy-Item -Recurse, a pipe from a listing), or a part after
+// it that is a glob, only known at run time ($(…), a variable) or anything
+// but a harmless part. Commands that only list names (ls, Get-ChildItem,
+// with cd) stay allowed: names reveal no contents.
+func secretMention(an *shell.Analysis, raw, home string) string {
+	listing := len(an.Cmds) > 0
+	for _, c := range an.Cmds {
+		if !listOnly[c.Name] && !navigation[c.Name] {
+			listing = false
+		}
+	}
+	if listing {
+		return ""
+	}
+	if m := globMention.FindString(raw); m != "" {
+		return m
+	}
+	text := raw
+	if h := shell.NormPath(home); h != "" && path.Base(h) != ".provguard" {
+		// A provguard home with another name: spell it as ~/.provguard so
+		// one pattern covers both.
+		text = strings.ReplaceAll(shell.NormPath(raw), h, "/.provguard")
+	}
+	for _, m := range homeMention.FindAllStringSubmatch(text, -1) {
+		next := strings.ToLower(strings.TrimLeft(m[1], `/\`))
+		if !harmless[next] {
+			return m[0]
+		}
+	}
+	return ""
 }
 
 func cdIntoClaude(cds []string) bool {
@@ -488,16 +563,55 @@ func protectedKeys(content string) (string, bool) {
 
 var writingTool = regexp.MustCompile(`(?i)(?:^|_)(?:write|edit|create|move|rename|copy|delete|remove|patch|apply|append|save|put|upload|mkdir|link|update|set|replace|insert)(?:_|$)`)
 
-var pathKeys = []string{"path", "file_path", "filePath", "filepath", "notebook_path", "destination", "dest",
+var pathKeys = []string{"path", "paths", "file_path", "filePath", "filepath", "notebook_path", "destination", "dest",
 	"target", "new_path", "newPath", "source", "src", "from", "to", "directory", "dir"}
 
 // checkToolPaths: tools that write files outside Write/Edit, e.g.
 // mcp__filesystem__write_file / move_file.
 func checkToolPaths(e event.Event, home string) Verdict {
+	paths := toolPaths(e)
 	parts := strings.Split(e.ToolName, "__")
+	// Reading tools (read_file, search_files, ...) may not reach the key or
+	// the session files either. Listing tools show names only, like ls.
+	listing := listingTool.MatchString(parts[len(parts)-1])
+	for _, p := range paths {
+		if secretPath(p, home, e.Cwd, nil, true) || !listing && homeFolder(p, home, e.Cwd) {
+			return deny("self_protect_secret", "blocked "+e.ToolName+" on provguard's key or session files ("+p+")")
+		}
+	}
 	if !writingTool.MatchString(parts[len(parts)-1]) {
 		return Verdict{}
 	}
+	for _, p := range paths {
+		if why := protectedPath(p, "delete", home, e.Cwd, nil); why != "" {
+			return deny("self_protect_tool", "blocked "+e.ToolName+" on "+why+" ("+p+")")
+		}
+	}
+	return Verdict{}
+}
+
+// listingTool: MCP tools that show names or metadata, not file contents.
+var listingTool = regexp.MustCompile(`(?i)^(list|directory_tree|tree|get_file_info|stat)`)
+
+// homeFolder: p is provguard's folder itself (a name matching .provguard, or
+// its home): reading or searching all of it reaches the key.
+func homeFolder(p, home, cwd string) bool {
+	for _, f := range pathForms(p, cwd, nil) {
+		n := path.Clean(shell.NormPath(f))
+		if segMatch(path.Base(n), ".provguard") {
+			return true
+		}
+		for _, h := range []string{home, canonical(home, "")} {
+			if h != "" && n == path.Clean(shell.NormPath(h)) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// toolPaths collects the paths in an MCP tool's input.
+func toolPaths(e event.Event) []string {
 	var paths []string
 	for _, k := range pathKeys {
 		switch v := e.ToolInput[k].(type) {
@@ -520,12 +634,7 @@ func checkToolPaths(e event.Event, home string) Verdict {
 			}
 		}
 	}
-	for _, p := range paths {
-		if why := protectedPath(p, "delete", home, e.Cwd, nil); why != "" {
-			return deny("self_protect_tool", "blocked "+e.ToolName+" on "+why+" ("+p+")")
-		}
-	}
-	return Verdict{}
+	return paths
 }
 
 // --- shell ---
@@ -588,11 +697,14 @@ func checkShell(an *shell.Analysis, raw, home, cwd string) Verdict {
 				if deep {
 					deepLeft--
 				}
-				if secretPath(part, home, cwd, deep) {
+				if secretPath(part, home, cwd, an.Cds, deep) {
 					return deny("self_protect_secret", "blocked a command that uses provguard's key or session files ("+a+")")
 				}
 			}
 		}
+	}
+	if m := secretMention(an, raw, home); m != "" {
+		return deny("self_protect_secret", "blocked a command that can reach provguard's key or session files ("+m+")")
 	}
 	cds := an.Cds
 	for _, w := range an.Writes {

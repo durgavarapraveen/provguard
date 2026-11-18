@@ -51,7 +51,8 @@ func TestGuidedInitDefaults(t *testing.T) {
 	if !hooksInstalled(t, settings) {
 		t.Error("hooks not installed")
 	}
-	for _, want := range []string{"provguard is on", "provguard status", "provguard uninstall --yes"} {
+	for _, want := range []string{"provguard is on", "provguard status", "provguard uninstall --yes",
+		"🟡 untrusted", "🟠 sensitive", "🔴 both", "session titles get the icon", "provguard explain latest"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("summary misses %q:\n%s", want, out)
 		}
@@ -76,6 +77,23 @@ func TestGuidedInitChoicesAndRetry(t *testing.T) {
 	s, _ := install.Load(settings)
 	if !strings.Contains(install.HooksJSON(s), `"onFailure": "block"`) {
 		t.Error("strict mode did not fail closed")
+	}
+}
+
+// init --yes (no terminal) also explains the trust states: most agents and
+// the Claude desktop app show no notice when a session's state changes.
+func TestInitYesExplainsTrustStates(t *testing.T) {
+	home := t.TempDir()
+	settings := filepath.Join(t.TempDir(), "settings.json")
+	var out bytes.Buffer
+	r := installRun{settings: settings, home: home, exe: filepath.Join(home, "pg.exe"), write: true, out: &out, errOut: &out}
+	if code := r.init(); code != 0 {
+		t.Fatalf("exit %d: %s", code, out.String())
+	}
+	for _, want := range []string{"🟡 untrusted", "🟠 sensitive", "🔴 both", "provguard explain latest"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("output misses %q:\n%s", want, out.String())
+		}
 	}
 }
 

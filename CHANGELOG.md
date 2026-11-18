@@ -2,7 +2,19 @@
 
 ## Unreleased
 
+### Changed
+- `provguard init` ends with a short legend of the trust states (🟡 untrusted, 🟠 sensitive, 🔴 both), what the chosen mode does in each, and `provguard explain latest` to see why a session has its state.
+- `provguard review` counts the sessions in each trust state and points to `provguard explain latest`, because many agents (and the Claude desktop app) do not show provguard's notice when a state changes.
+- `provguard uninstall` names every session whose title may still show a trust icon, and says how each gets its old title back: a message in that session (the cleanup hook) or a rename. `uninstall --now` names them too, because it leaves those icons; its preview (without `--yes`) shows the list first. The app owns session titles, so provguard can change one only through a hook answer while a message is sent in that session, not at the moment of uninstall. provguard now records each marked title's text for this; records from older versions show as the session id.
+- README: a session that was renamed (by you or by a tool) does not get the title icon, because the app keeps such a title.
+- README: a table of which agents show that notice and which show a session-title icon, with the source for each (agent docs or live test).
+
+### Fixed
+- **Self-protection: agents could read provguard's key and session files** through spellings the check missed: globs (`~/.provguard/*`, `k?y`, `.prov*/key`), parts known only at run time (`$(…)`, loop variables), the whole folder (`tar`, `zip`, `grep -r`, `Copy-Item -Recurse`, a pipe from `Get-ChildItem`), `cd` into the folder followed by a relative name, the Grep tool on the folder, and MCP file servers that read or search. All of these are now blocked; listing names (`ls`, `Get-ChildItem`, MCP `list_directory`) and reading `config.json`, the audit log and the binary stay allowed. The threat model documents the remaining limit: a recursive read of the whole home folder.
+- The README and CHANGELOG no longer mention a `provguard-badge` desktop mod: it was never published.
+
 ### Added
+- `provguard doctor` reports the version of the binary the hooks actually run, and a MEDIUM finding when it differs from the provguard you ran the check with, because `init` copies the binary and nothing afterwards says it stayed behind. Found live: a fixed build sat uninstalled while the old binary kept crashing, and the only signs were the agent's "a hook gave no usable answer" notice and panics in the audit log.
 - CI on Linux (x64, ARM), macOS (Apple Silicon, Intel) and Windows: vet, tests, the benchmark and the end-to-end install test on every push and pull request.
 - Release workflow: pushing a tag builds the binaries, signs their build provenance with Sigstore (`gh attestation verify <file> --repo durgavarapraveen/provguard`) and publishes the release with notes from this file.
 - `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, issue templates (bug, false positive, new agent; bypasses go to private reporting) and a pull request template.
@@ -60,7 +72,7 @@ provguard now protects nine coding agents besides Claude Code. `provguard init` 
 - `allowed_hosts` now also exempts data sent to those hosts from the egress rules.
 - `trusted_content_hosts`: the hosts whose fetched content is trusted, split out of `allowed_hosts`, which now permits sending only. `provguard doctor` reports entries where anyone can publish (`github.com`, paste sites) or that are too broad.
 - `"block_mode": "ask"` turns `balanced` denies into an approval prompt.
-- Session title icon and `provguard status` for the trust state; `provguard-badge` desktop mod (status entry and toasts).
+- Session title icon and `provguard status` for the trust state.
 
 ### Easier to use
 - One-line install scripts (`scripts/install.sh`, `scripts/install.ps1`) that check the binary's SHA-256 and start the setup.

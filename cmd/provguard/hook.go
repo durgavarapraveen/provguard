@@ -65,7 +65,7 @@ func handle(ad core.Adapter, e event.Event, out *hookOutput, rec *audit.Record) 
 					final = newTitle
 				}
 				if strings.TrimSpace(final) != "" {
-					markTitled(home, e.SessionID, stripIcons(final) != final)
+					markTitled(home, e.SessionID, final)
 				}
 			}
 		}()
