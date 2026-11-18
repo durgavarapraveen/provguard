@@ -30,6 +30,7 @@ type installRun struct {
 	detectUser  func() string // the user's GitHub name, "" if unknown
 	now         bool          // uninstall: skip the title cleanup and remove everything at once
 	keepData    bool          // uninstall: keep the provguard folder (logs, config)
+	noPath      bool          // init: do not put <home>/bin on the user's PATH
 }
 
 // runInstall parses init/uninstall flags. On a terminal, `provguard init`
@@ -41,6 +42,7 @@ func runInstall(args []string, add bool) int {
 	settings := fs.String("settings", "", "settings file (default ~/.claude/settings.json)")
 	yes := fs.Bool("yes", false, "write the change without questions")
 	noCopy := fs.Bool("no-copy", false, "init: run hooks from this binary's location instead of the protected ~/.provguard/bin copy")
+	noPath := fs.Bool("no-path", false, "init: do not put provguard on your PATH")
 	now := fs.Bool("now", false, "uninstall: remove everything at once, without restoring session titles")
 	keepData := fs.Bool("keep-data", false, "uninstall: keep ~/.provguard (logs and settings)")
 	if err := fs.Parse(args); err != nil {
@@ -48,6 +50,7 @@ func runInstall(args []string, add bool) int {
 	}
 	r := installRun{
 		settings: *settings, write: *yes, copyBinary: !*noCopy, now: *now, keepData: *keepData,
+		noPath:      *noPath,
 		interactive: add && !*yes && isTerminal(os.Stdin),
 		in:          os.Stdin, out: os.Stdout, errOut: os.Stderr,
 		detectUser: detectGitHubUser,
@@ -93,7 +96,12 @@ func (r installRun) init() int {
 	}
 	before := install.HooksJSON(s)
 	cfg, cfgErr := config.Load(r.home)
-	addPath := false
+	// `init --yes` is how the install script and the README install
+	// provguard, and a downloaded binary is not on anyone's PATH, so --yes
+	// puts it there instead of printing how to do it by hand. A terminal is
+	// asked instead (below), and --no-path opts out. uninstall takes it off
+	// again.
+	addPath := r.write && !r.noPath
 	agents := presentAgents() // --yes protects every agent it finds
 	claude := true            // Claude Code's hooks, which Cursor and Devin run too
 
@@ -175,6 +183,8 @@ func (r installRun) init() int {
 		fmt.Fprintln(r.out, "Backup:", backup)
 	}
 	fmt.Fprintln(r.out, "Written. Claude Code reloads hook settings without a restart.")
+	fmt.Fprintln(r.out)
+	trustHelp(r.out, claude && cfg.TitleIconOn(), cfg.ProfileName())
 	return 0
 }
 
@@ -192,13 +202,40 @@ func (r installRun) summary(cfg config.Config, pathNote string, claude bool) {
 			}
 		}
 	}
+	fmt.Fprintln(r.out)
+	trustHelp(r.out, claude && cfg.TitleIconOn(), cfg.ProfileName())
 	fmt.Fprint(r.out, `
   See a session's state   provguard status
+  See why                 provguard explain latest
   Change a setting        provguard config
   Turn it off             provguard uninstall --yes
 
 It works from your next prompt. No restart needed.
 `)
+}
+
+// trustHelp explains the trust states. titles: Claude Code session titles
+// get the state's icon. Many agents show no notice when the state changes
+// (the Claude desktop app does not either), so it says where to look.
+func trustHelp(w io.Writer, titles bool, profile string) {
+	fmt.Fprintln(w, "Each session gets a trust state:")
+	fmt.Fprintln(w, "  🟡 untrusted   it read web pages, issues, untrusted repos or MCP output")
+	fmt.Fprintln(w, "  🟠 sensitive   it read secrets such as .env or keys")
+	fmt.Fprintln(w, "  🔴 both        it read both: the riskiest state")
+	switch profile {
+	case config.Audit:
+		fmt.Fprintln(w, "Watch-only mode only logs what it would stop; provguard review shows it.")
+	case config.Strict:
+		fmt.Fprintln(w, "Lockdown mode blocks risky steps in 🟡 sessions, any call that contains a secret it saw, and data leaving 🔴 sessions.")
+	default:
+		fmt.Fprintln(w, "Protect mode asks before risky steps in 🟡 sessions. It stops (or asks, if you chose that) any call that")
+		fmt.Fprintln(w, "contains a secret it saw, and data leaving 🔴 sessions.")
+	}
+	if titles {
+		fmt.Fprintln(w, "Claude Code session titles get the icon in front. Run `provguard explain latest` to see why.")
+	} else {
+		fmt.Fprintln(w, "Run `provguard explain latest` to see a session's state and why.")
+	}
 }
 
 // uninstall turns protection off. Session titles that still carry a trust
@@ -288,11 +325,27 @@ func (r installRun) dataNote() string {
 
 func (r installRun) binDir() string { return filepath.Join(r.home, "bin") }
 
+// processPathHas reports whether dir is on the PATH of this process, which
+// is the PATH its terminal had when it started. A change to the saved PATH
+// does not reach terminals that are already open.
+func processPathHas(dir string) bool {
+	return pathListHas(os.Getenv("PATH"), dir, string(os.PathListSeparator), userPathFoldCase)
+}
+
 // pathNote puts the provguard folder on PATH when the user agreed, and says
 // what happened. Without a terminal (init --yes) it only says how.
 func (r installRun) pathNote(add bool) string {
-	if !r.copyBinary || userPath.has(r.binDir()) {
+	if !r.copyBinary {
 		return ""
+	}
+	if userPath.has(r.binDir()) {
+		if processPathHas(r.binDir()) {
+			return "" // nothing to say: the command works here already
+		}
+		// Found live: the folder was on PATH from an earlier init, so this
+		// said nothing at all, and `provguard` kept failing in the terminal
+		// the user already had open.
+		return "provguard is on your PATH, but a terminal keeps the PATH it started with. Open a new terminal to use the provguard command."
 	}
 	if add {
 		where, err := userPath.add(r.binDir())
