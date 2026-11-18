@@ -19,9 +19,6 @@ coverage.*
 # Local agent notes
 .agent/
 
-# No CI workflows yet
-.github/
-
 # Raw hook recordings (may hold secrets; commit only reviewed copies)
 testdata/**/raw/
 

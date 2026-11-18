@@ -1,0 +1,39 @@
+name: False positive
+description: provguard blocked or asked about normal work.
+labels: ["false positive"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you. False alarms matter as much as missed attacks.
+        Remove secrets, private hosts and paths before you paste.
+  - type: textarea
+    id: command
+    attributes:
+      label: What was stopped
+      description: The command or tool call, and what you were doing.
+      placeholder: npm install left-pad, after reading the README of my own repo
+    validations:
+      required: true
+  - type: textarea
+    id: check
+    attributes:
+      label: Output of provguard check or explain
+      description: 'Run `provguard check "<command>"`, or `provguard explain latest` right after the block.'
+      render: text
+    validations:
+      required: true
+  - type: input
+    id: versions
+    attributes:
+      label: Versions
+      placeholder: provguard 0.5.1, Claude Code 2.1.238, Windows 11
+    validations:
+      required: true
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Mode
+      options: [Protect (balanced), Lockdown (strict), Watch only (audit)]
+    validations:
+      required: true

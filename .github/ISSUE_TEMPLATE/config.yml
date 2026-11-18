@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: A way around provguard (security)
+    url: https://github.com/durgavarapraveen/provguard/security/advisories/new
+    about: Report bypasses privately, not in a public issue.
+  - name: Question or idea
+    url: https://github.com/durgavarapraveen/provguard/discussions
+    about: Ask questions and share ideas in Discussions.
