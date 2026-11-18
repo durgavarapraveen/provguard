@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.5.1 — fixes found by end-to-end testing
 
 ### Fixed (found by end-to-end testing before launch)
 - **Claude Code calls were taken for Devin's.** Claude Code 2.1.238 sends `prompt_id` in every hook call, which was how provguard recognized Devin, so Claude Code got answers in Devin's format. provguard now also checks for `transcript_path`, which Claude Code always sends and Devin does not.
