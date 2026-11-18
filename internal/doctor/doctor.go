@@ -4,14 +4,18 @@
 package doctor
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/durgavarapraveen/provguard/internal/redact"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/durgavarapraveen/provguard/internal/config"
 	"github.com/durgavarapraveen/provguard/internal/install"
@@ -38,12 +42,18 @@ type Options struct {
 	UserSettings string   // ~/.claude/settings.json
 	Repo         string   // repository or project folder to scan ("" = skip)
 	Events       []string // hook events provguard must have
+	// Version is the version of the provguard running the check. Set it to
+	// compare against the binary the hooks actually run ("" = skip).
+	Version string
 }
 
 // Run returns all findings, most severe first.
 func Run(o Options) []Finding {
 	var f []Finding
 	f = append(f, HookIntegrity(o)...)
+	// Not in HookIntegrity: this runs the installed binary, and the hook
+	// calls HookIntegrity on every ConfigChange event.
+	f = append(f, HookBinaryVersion(o)...)
 	if o.Repo != "" {
 		f = append(f, ScanRepo(o.Repo, o.Home)...)
 	}
@@ -114,6 +124,81 @@ func HookIntegrity(o Options) []Finding {
 		}
 	}
 	return out
+}
+
+// versionRe reads the version out of `provguard version` ("provguard 0.5.1").
+var versionRe = regexp.MustCompile(`(?m)^provguard\s+(\S+)`)
+
+// hookVersionTimeout caps how long the installed binary may take to answer.
+const hookVersionTimeout = 3 * time.Second
+
+// HookBinaryVersion compares the provguard running this check with the one
+// the hooks actually run. Nothing else reports that they differ, so an
+// installed binary stayed behind a fixed build with no sign of it but the
+// crashes it kept making. It runs the installed binary (`provguard
+// version`), so it belongs to the doctor command, not to HookIntegrity.
+func HookBinaryVersion(o Options) []Finding {
+	if o.Version == "" || o.UserSettings == "" {
+		return nil
+	}
+	s, err := install.Load(o.UserSettings)
+	if err != nil {
+		return nil // HookIntegrity reports an unreadable settings file
+	}
+	hooks, _ := s["hooks"].(map[string]any)
+	cmd := provguardCommand(hooks, "PreToolUse")
+	if cmd == "" {
+		return nil // HookIntegrity reports a missing hook
+	}
+	bin := commandBinary(cmd)
+	if sameBinary(bin) {
+		return []Finding{{Info, "binary", "hooks run this binary, provguard " + o.Version}}
+	}
+	got, err := binaryVersion(bin)
+	if err != nil {
+		return []Finding{{Medium, "binary", "the hooks run " + bin +
+			", which does not report its version (" + firstLine(err.Error(), 60) + ")"}}
+	}
+	return compareVersions(o.Version, got)
+}
+
+// compareVersions reports the installed hook binary's version against the
+// version of the provguard running the check.
+func compareVersions(running, installed string) []Finding {
+	if installed == running {
+		return []Finding{{Info, "binary", "hooks run provguard " + installed + ", the same version as this one"}}
+	}
+	return []Finding{{Medium, "binary", "the hooks run provguard " + installed + ", but this is provguard " + running +
+		"; the hooks keep using the installed build until you run provguard init --yes"}}
+}
+
+// sameBinary reports whether p is the file running this check.
+func sameBinary(p string) bool {
+	self, err := os.Executable()
+	if err != nil {
+		return false
+	}
+	a, err := os.Stat(self)
+	if err != nil {
+		return false
+	}
+	b, err := os.Stat(p)
+	return err == nil && os.SameFile(a, b)
+}
+
+// binaryVersion asks a provguard binary for its version.
+func binaryVersion(bin string) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), hookVersionTimeout)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, bin, "version").Output()
+	if err != nil {
+		return "", err
+	}
+	m := versionRe.FindSubmatch(out)
+	if m == nil {
+		return "", errors.New("unexpected output")
+	}
+	return string(m[1]), nil
 }
 
 // failClosedFindings reports when the installed PreToolUse hook does not
@@ -333,3 +418,12 @@ func contentTrustFindings(cfg config.Config) []Finding {
 }
 
 func strconvQuote(s string) string { return `"` + s + `"` }
+
+// firstLine keeps a message to one short line.
+func firstLine(s string, max int) string {
+	s = strings.Join(strings.Fields(s), " ")
+	if len(s) > max {
+		return s[:max] + "…"
+	}
+	return s
+}

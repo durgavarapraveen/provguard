@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 )
 
@@ -56,24 +57,41 @@ var sessionIDRe = regexp.MustCompile(`^[A-Za-z0-9_-]{1,128}$`)
 
 func titledDir(home string) string { return filepath.Join(home, "titled") }
 
-// markTitled records (marked) or forgets that the session's title carries an
-// icon. Errors are ignored: a missed record only means one title is not
-// restored on uninstall.
-func markTitled(home, session string, marked bool) {
+// markTitled records the title with its icon, so uninstall can name the
+// session, or forgets the session when title has no icon (""). Errors are
+// ignored: a missed record only means one title is not restored on
+// uninstall.
+func markTitled(home, session, title string) {
 	if !sessionIDRe.MatchString(session) {
 		return
 	}
 	p := filepath.Join(titledDir(home), session)
-	if !marked {
+	if stripIcons(title) == title {
 		_ = os.Remove(p)
 		return
 	}
-	if _, err := os.Stat(p); err == nil {
+	if old, err := os.ReadFile(p); err == nil && string(old) == title {
 		return // already recorded; most prompts change nothing
 	}
 	if os.MkdirAll(titledDir(home), 0o700) == nil {
-		_ = os.WriteFile(p, nil, 0o600)
+		_ = os.WriteFile(p, []byte(title), 0o600)
 	}
+}
+
+// titledTitles lists the recorded titles that still carry an icon, sorted.
+// A record from an older version holds no title; it shows as the session id.
+func titledTitles(home string) []string {
+	var out []string
+	for _, id := range titledSessions(home) {
+		t, _ := os.ReadFile(filepath.Join(titledDir(home), id))
+		name := strings.TrimSpace(string(t))
+		if name == "" {
+			name = "(session " + id + ")"
+		}
+		out = append(out, name)
+	}
+	sort.Strings(out)
+	return out
 }
 
 func isTitled(home, session string) bool {

@@ -62,6 +62,14 @@ Type all, or numbers separated by commas [all]: 1,3,10
 
 `provguard uninstall` takes it off your PATH again.
 
+Downloading a binary from the [Releases page](https://github.com/durgavarapraveen/provguard/releases) by hand instead? The asset is named `provguard_<version>_<os>_<arch>`, so it is a file, not yet a `provguard` command. Run it once by its own name to install itself:
+
+```powershell
+.\provguard_<version>_windows_amd64.exe init --yes
+```
+
+`init --yes` asks nothing. It copies the binary to `~/.provguard/bin`, points the hooks there, and puts that folder on your PATH; `--no-path` skips the PATH change. **Then open a new terminal.** A terminal keeps the PATH it had when it started, and a terminal inside an editor keeps the editor's, so `provguard` stays "not recognized" in windows that were already open. `provguard doctor` tells you when that is what is happening.
+
 From source instead (Go 1.26+): `go install github.com/durgavarapraveen/provguard/cmd/provguard@latest`, then `provguard init`.
 
 Releases from v0.5.2 on carry signed build provenance (Sigstore). To check that a binary was built from this repository by its release workflow, run `gh attestation verify <file> --repo durgavarapraveen/provguard`.
@@ -107,7 +115,7 @@ Regex guards check one command at a time and remember nothing about what the age
 | Protect | `provguard config mode balanced` | Stops leaks of secrets; asks before risky steps. With `on-block ask`, a leak asks you instead of blocking. |
 | Lockdown | `provguard config mode strict` | Every risky step is blocked, and checks that cannot run block too. |
 
-`provguard init --yes` (no questions) keeps the default, watch only.
+`provguard init --yes` (no questions) keeps the default, watch only, and puts provguard on your PATH (`--no-path` skips that).
 
 ## How it works
 
@@ -134,15 +142,32 @@ Regex guards check one command at a time and remember nothing about what the age
 
 ## Seeing a session's trust state
 
+| State | Meaning |
+|---|---|
+| (no icon) | Clean |
+| 🟡 untrusted | The agent read content you do not control: web pages, web searches, GitHub issues, `curl` output, repos or MCP servers you have not marked as trusted |
+| 🟠 sensitive | The agent read secrets: `.env`, keys, tokens |
+| 🔴 both | Both of the above: the riskiest state |
+
 | Where | How |
 |---|---|
-| Everywhere hooks run | A one-time notice when a session becomes untrusted or sensitive |
-| Session list (sidebar) | The title gets the icon in front, e.g. `🔴 Fix login`, from your next prompt. Turn off with `"session_title_icon": false`. |
-| Any terminal | `provguard status` (`--json` for scripts, `--plain` without colors) |
+| Any terminal, every agent | `provguard status` shows the latest session's state, `provguard explain latest` shows why, and `provguard review` counts the states of recent sessions |
+| Claude Code session list | The title gets the icon in front, e.g. `🔴 Fix login`, from your next prompt. The app owns its titles, so the icon changes only when you send a message in that session, and it is not added to a session that was renamed (by you, or by a tool). Turn off with `"session_title_icon": false`. |
 | Claude Code CLI status line | Add `"statusLine": { "type": "command", "command": "provguard status" }` to `~/.claude/settings.json` yourself, with `~/.provguard/bin` on your `PATH` (agents may not edit `statusLine`) |
-| Claude desktop app | The `provguard-badge` mod: a status entry and a toast on each change |
+| A notice in the chat | provguard sends a one-time notice when a state changes, but not every agent shows it: see below |
 
-🟢 clean · 🟡 untrusted · 🟠 sensitive · 🔴 both
+**Which agents show the notice.** When provguard blocks or asks, every agent gets provguard's reason, and the call stops or waits for you. The one-time notice about a state change is different: an agent shows it only if its hooks can send a message to the user.
+
+| Agent | Shows the notice | Title icon | Source |
+|---|---|---|---|
+| Claude Code CLI | Yes (`systemMessage`) | Yes | Claude Code hook docs |
+| Claude desktop app, Code tab | No: the app did not show it in our live test | Yes | Live test |
+| OpenAI Codex | Yes, as a warning | No | Codex hook docs |
+| Gemini CLI | Yes | No | Gemini CLI hook docs |
+| Factory Droid | Yes, as a hook warning | No | Droid hook docs |
+| Cursor, Devin, GitHub Copilot, Kiro, OpenCode, Antigravity | No: their hooks have no message channel to the user | No | Each agent's hook docs; Antigravity also in a live test |
+
+Where the notice is not shown, run `provguard explain latest` to see a session's state and the reason for it.
 
 ## Benchmark
 
@@ -197,7 +222,7 @@ Run `provguard help` for the full list.
 | `provguard doctor --live` | Send a test write to a protected file through each installed agent's hook and check that provguard blocks it in that agent's reply format |
 | `provguard doctor [dir] [--json]` | Check hook integrity; scan a repo for settings that turn hooks off, repo hooks, `.mcp.json` servers and risky instruction files. Exits 1 on HIGH. |
 | `provguard demo` | One normal task and two attacks, narrated, in a temp folder |
-| `provguard uninstall [--yes] [--now] [--keep-data]` | Turn protection off and remove provguard, `~/.provguard` included. Sessions whose title shows a trust icon get their old title back on your next message in them; then the last hook removes itself (at the latest after 30 days). `--now` removes everything at once and leaves the icons; `--keep-data` keeps logs and settings. |
+| `provguard uninstall [--yes] [--now] [--keep-data]` | Turn protection off and remove provguard, `~/.provguard` included. Sessions whose title shows a trust icon get their old title back on your next message in them; then the last hook removes itself (at the latest after 30 days). Both forms list the sessions whose title still shows an icon. `--now` removes everything at once, and those titles keep their icon until you rename them yourself; run it without `--yes` first to see the list. `--keep-data` keeps logs and settings. |
 | `provguard bench [--check] [--live]` | The attack and false-positive benchmark |
 
 ## Configuration file

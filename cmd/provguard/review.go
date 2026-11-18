@@ -55,16 +55,23 @@ type review struct {
 	asked    int
 	allowed  int // let through with provguard allow
 	groups   []*reviewGroup
+
+	// Sessions by trust state at the end of the period.
+	untrusted, sensitive, both int
 }
 
 func buildReview(recs []audit.Record, days int) review {
 	rv := review{days: days}
 	sessions := map[string]bool{}
+	type state struct{ tainted, sensitive bool }
+	states := map[string]state{} // labels only grow, except after provguard reset
 	by := map[string]*reviewGroup{}
 	for i := range recs {
 		r := &recs[i]
 		if r.SessionID != "" {
 			sessions[r.SessionID] = true
+			st := states[r.SessionID]
+			states[r.SessionID] = state{st.tainted || r.SessionTainted, st.sensitive || r.SessionSensitive}
 		}
 		if r.Override != "" {
 			rv.allowed++
@@ -91,6 +98,16 @@ func buildReview(recs []audit.Record, days int) review {
 		}
 	}
 	rv.sessions = len(sessions)
+	for _, st := range states {
+		switch {
+		case st.tainted && st.sensitive:
+			rv.both++
+		case st.tainted:
+			rv.untrusted++
+		case st.sensitive:
+			rv.sensitive++
+		}
+	}
 	sort.SliceStable(rv.groups, func(i, j int) bool {
 		a, b := rv.groups[i], rv.groups[j]
 		return a.deny+a.ask > b.deny+b.ask
@@ -133,6 +150,12 @@ func printReview(w io.Writer, rv review, profile string) {
 	fmt.Fprintf(w, "In %s, provguard %s %s and %s %d.\n", plural(rv.sessions, "session"), verb[0], plural(rv.stopped, "call"), verb[1], rv.asked)
 	if rv.allowed > 0 {
 		fmt.Fprintf(w, "You let %s through with provguard allow.\n", plural(rv.allowed, "blocked call"))
+	}
+	if rv.untrusted+rv.sensitive+rv.both > 0 {
+		// The Claude desktop app and most agents do not show provguard's
+		// notice when a session's state changes, so the reason is here.
+		fmt.Fprintf(w, "Session states: %d 🟡 untrusted, %d 🟠 sensitive, %d 🔴 both.\n", rv.untrusted, rv.sensitive, rv.both)
+		fmt.Fprintln(w, "Many agents do not show provguard's notice when a state changes. To see why: provguard explain latest")
 	}
 	for _, g := range rv.groups {
 		fmt.Fprintf(w, "\n  %s (%s): %d stopped, %d asked\n", ruleTitle(g.rule), g.rule, g.deny, g.ask)

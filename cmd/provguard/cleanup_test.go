@@ -82,12 +82,14 @@ func TestHookRecordsMarkedTitles(t *testing.T) {
 
 func TestUninstallRestoresTitlesThenRemovesItself(t *testing.T) {
 	home, settings := installed(t)
-	markTitled(home, "s1", true)
-	markTitled(home, "s2", true)
+	markTitled(home, "s1", "🔴 Fix login")
+	markTitled(home, "s2", "🟠 Deploy")
 
 	code, out := uninstallRun(home, settings, false, false)
-	if code != 0 || !strings.Contains(out, "2 sessions still show a trust icon") {
-		t.Fatalf("code %d: %s", code, out)
+	for _, want := range []string{"2 sessions may still show a trust icon", "  🔴 Fix login", "  🟠 Deploy", "your next message in each"} {
+		if code != 0 || !strings.Contains(out, want) {
+			t.Fatalf("code %d, output lacks %q:\n%s", code, want, out)
+		}
 	}
 	h := hookCommands(t, settings)
 	if strings.Contains(h, "hook PreToolUse") || !strings.Contains(h, "hook cleanup") {
@@ -120,7 +122,7 @@ func TestUninstallRestoresTitlesThenRemovesItself(t *testing.T) {
 
 func TestCleanupEndsAfterWindow(t *testing.T) {
 	home, settings := installed(t)
-	markTitled(home, "s1", true)
+	markTitled(home, "s1", "🔴 Fix login")
 	uninstallRun(home, settings, false, false)
 	later := time.Now().Add(cleanupWindow + time.Hour)
 	cleanupPrompt(t, home, "unrelated", "", later)
@@ -129,11 +131,56 @@ func TestCleanupEndsAfterWindow(t *testing.T) {
 	}
 }
 
+// The preview of uninstall --now (without --yes) changes nothing and warns
+// that the titles would keep their icon, with the way to avoid it.
+func TestUninstallNowPreviewWarns(t *testing.T) {
+	home, settings := installed(t)
+	markTitled(home, "s1", "🔴 Fix login")
+	var buf bytes.Buffer
+	r := installRun{settings: settings, home: home, now: true, out: &buf, errOut: &buf}
+	if code := r.uninstall(); code != 0 {
+		t.Fatalf("exit %d", code)
+	}
+	out := buf.String()
+	for _, want := range []string{"  🔴 Fix login", "rename each session yourself", "without --now", "No change written"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("preview lacks %q:\n%s", want, out)
+		}
+	}
+	if !isTitled(home, "s1") || !strings.Contains(hookCommands(t, settings), "hook PreToolUse") {
+		t.Error("the preview changed something")
+	}
+}
+
+// The record keeps the latest marked title, and a clean title forgets it.
+func TestTitleRecord(t *testing.T) {
+	home := t.TempDir()
+	markTitled(home, "s1", "🟡 Fix login")
+	markTitled(home, "s1", "🔴 Fix login")
+	markTitled(home, "s2", "🟠 Deploy")
+	if got := titledTitles(home); len(got) != 2 || got[0] != "🔴 Fix login" || got[1] != "🟠 Deploy" {
+		t.Fatalf("titles %q", got)
+	}
+	markTitled(home, "s2", "Deploy")
+	if got := titledTitles(home); len(got) != 1 || isTitled(home, "s2") {
+		t.Errorf("clean title still recorded: %q", got)
+	}
+	// A record written by an older version holds no title.
+	os.WriteFile(filepath.Join(titledDir(home), "old1"), nil, 0o600)
+	if got := titledTitles(home); len(got) != 2 || got[0] != "(session old1)" {
+		t.Errorf("old record: %q", got)
+	}
+}
+
 func TestUninstallNowAndKeepData(t *testing.T) {
 	home, settings := installed(t)
-	markTitled(home, "s1", true)
-	if code, out := uninstallRun(home, settings, true, false); code != 0 || !strings.Contains(out, "Removed") {
-		t.Fatalf("code %d: %s", code, out)
+	markTitled(home, "s1", "🔴 Fix login")
+	code, out := uninstallRun(home, settings, true, false)
+	// --now cannot clean titles, so it names them and says how to fix them.
+	for _, want := range []string{"Removed", "  🔴 Fix login", "rename each session yourself"} {
+		if code != 0 || !strings.Contains(out, want) {
+			t.Fatalf("code %d, output lacks %q:\n%s", code, want, out)
+		}
 	}
 	if h := hookCommands(t, settings); strings.Contains(h, "provguard") {
 		t.Errorf("--now left hooks:\n%s", h)
@@ -154,7 +201,7 @@ func TestUninstallNowAndKeepData(t *testing.T) {
 
 func TestCleanupHookIdleWithoutUninstall(t *testing.T) {
 	home := t.TempDir()
-	markTitled(home, "s1", true)
+	markTitled(home, "s1", "🔴 Fix login")
 	if got := cleanupPrompt(t, home, "s1", "🔴 X", time.Now()); got != "" {
 		t.Errorf("cleanup ran without a pending uninstall: %q", got)
 	}

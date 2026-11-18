@@ -66,7 +66,7 @@ func runCleanupHook(stdin io.Reader, stdout io.Writer, home string, now time.Tim
 				stdout.Write(b)
 			}
 		}
-		markTitled(home, e.SessionID, false)
+		markTitled(home, e.SessionID, "")
 	}
 	if len(titledSessions(home)) == 0 || now.Sub(p.Since) > cleanupWindow {
 		_ = finishUninstall(home, p)

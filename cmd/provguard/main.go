@@ -26,7 +26,7 @@ const maxPayload = 64 << 20
 const usage = `provguard - a runtime firewall for AI coding agents
 
 Start here:
-  provguard init                    guided setup (--yes: no questions)
+  provguard init                    guided setup (--yes: no questions, --no-path: skip PATH)
   provguard demo                    see it stop two attacks, in a temp folder
   provguard status                  this session's trust state (also a status line)
   provguard review [--days N]       what it stopped, and what to do next
