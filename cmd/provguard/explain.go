@@ -173,7 +173,8 @@ func runDoctor(args []string, w io.Writer) int {
 	if *live {
 		return runDoctorLive(w, settings, home)
 	}
-	f := doctor.Run(doctor.Options{Home: home, UserSettings: settings, Repo: repo, Events: claudecode.Events})
+	f := doctor.Run(doctor.Options{Home: home, UserSettings: settings, Repo: repo,
+		Events: claudecode.Events, Version: version})
 	if *asJSON {
 		b, _ := json.MarshalIndent(f, "", "  ")
 		fmt.Fprintln(w, string(b))
