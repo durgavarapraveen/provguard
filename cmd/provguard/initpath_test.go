@@ -93,3 +93,27 @@ func fakeExe(t *testing.T) string {
 	}
 	return p
 }
+
+// doctor names the commonest reason `provguard` is "not recognized": the
+// folder is on the saved PATH, but this terminal started before it was
+// added.
+func TestStalePathFinding(t *testing.T) {
+	bin := filepath.Join(t.TempDir(), "bin")
+	dirs := withFakePath(t)
+
+	t.Setenv("PATH", filepath.Join(t.TempDir(), "elsewhere"))
+	if f := stalePathFinding(bin); f != nil {
+		t.Errorf("not on the saved PATH either: %+v", f)
+	}
+
+	dirs[filepath.Clean(bin)] = true
+	f := stalePathFinding(bin)
+	if len(f) != 1 || f[0].Severity != "INFO" || !strings.Contains(f[0].Message, "new one") {
+		t.Errorf("stale shell: %+v", f)
+	}
+
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+filepath.Join(t.TempDir(), "elsewhere"))
+	if f := stalePathFinding(bin); f != nil {
+		t.Errorf("this terminal has it: %+v", f)
+	}
+}

@@ -149,6 +149,19 @@ func runReset(args []string, w io.Writer) int {
 }
 
 // runDoctor checks hook integrity and scans a repo before you open it.
+// stalePathFinding explains the commonest reason the provguard command is
+// "not recognized": the folder is on the saved PATH, but this terminal
+// started before it was added, so it is missing from this process. Found
+// live, more than once.
+func stalePathFinding(bin string) []doctor.Finding {
+	if !userPath.has(bin) || processPathHas(bin) {
+		return nil
+	}
+	return []doctor.Finding{{Severity: doctor.Info, Area: "path",
+		Message: bin + " is on your saved PATH but not in this terminal's: a terminal keeps the PATH it started with " +
+			"(a terminal inside an editor keeps the editor's). Open a new one to use the provguard command."}}
+}
+
 func runDoctor(args []string, w io.Writer) int {
 	fs := flag.NewFlagSet("doctor", flag.ContinueOnError)
 	asJSON := fs.Bool("json", false, "print findings as JSON")
@@ -175,6 +188,7 @@ func runDoctor(args []string, w io.Writer) int {
 	}
 	f := doctor.Run(doctor.Options{Home: home, UserSettings: settings, Repo: repo,
 		Events: claudecode.Events, Version: version})
+	f = append(f, stalePathFinding(filepath.Join(home, "bin"))...)
 	if *asJSON {
 		b, _ := json.MarshalIndent(f, "", "  ")
 		fmt.Fprintln(w, string(b))
