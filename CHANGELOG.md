@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.5.2 — fewer false alarms, trust states, security hardening
 
 ### Changed
 - `provguard status` shows ⚪ **not tracked** for a session that no provguard hook has seen, instead of "clean", and asks you to run `doctor` when a session record cannot be read. To tell the two apart, a hook now saves a clean session once (one small file per session).
