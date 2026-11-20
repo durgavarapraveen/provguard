@@ -87,6 +87,24 @@ got="$(sha256 "$tmp/$name")"
 [ "$want" = "$got" ] || fail "checksum mismatch for $name (expected $want, got $got); nothing installed"
 say "Checksum OK."
 
+# Build provenance (Sigstore) proves the binary was built from this repo by
+# its release workflow, which a checksum from the same release cannot.
+# Releases up to 0.5.1 have none. It needs the GitHub CLI, signed in.
+if [ -z "${PROVGUARD_DIST:-}" ]; then
+  case "$version" in
+    0.[0-4].* | 0.5.0 | 0.5.1) say "Provenance: release $version has no signed provenance (releases after 0.5.1 do)." ;;
+    *)
+      if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
+        gh attestation verify "$tmp/$name" --repo "$repo" >/dev/null ||
+          fail "build provenance check failed for $name: it was not built by $repo's release workflow; nothing installed"
+        say "Provenance OK (built by $repo's release workflow)."
+      else
+        say "Provenance not checked: install the GitHub CLI (gh) and sign in, then run: gh attestation verify <file> --repo $repo"
+      fi
+      ;;
+  esac
+fi
+
 bin="$tmp/provguard$ext"
 mv "$tmp/$name" "$bin"
 chmod +x "$bin"

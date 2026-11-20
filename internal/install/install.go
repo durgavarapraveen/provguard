@@ -32,7 +32,7 @@ func DefaultSettingsPath() (string, error) {
 // Command returns the hook command line for one event.
 // Forward slashes work in both Git Bash and cmd on Windows.
 func Command(exe, eventName string) string {
-	return fmt.Sprintf("\"%s\" hook %s", filepath.ToSlash(exe), eventName)
+	return QuotePOSIX(filepath.ToSlash(exe)) + " hook " + eventName
 }
 
 // CleanupEvent is the hook name of the title cleanup that uninstall leaves
@@ -73,24 +73,10 @@ func HookBinary(s map[string]any) string {
 			for _, h := range hs {
 				hm, _ := h.(map[string]any)
 				if cmd, _ := hm["command"].(string); IsProvguard(cmd) {
-					return commandProgram(cmd)
+					return CommandProgram(cmd)
 				}
 			}
 		}
-	}
-	return ""
-}
-
-// commandProgram returns the program of a hook command line ("exe" args…).
-func commandProgram(cmd string) string {
-	cmd = strings.TrimSpace(cmd)
-	if rest, ok := strings.CutPrefix(cmd, `"`); ok {
-		if i := strings.IndexByte(rest, '"'); i >= 0 {
-			return filepath.FromSlash(rest[:i])
-		}
-	}
-	if f := strings.Fields(cmd); len(f) > 0 {
-		return filepath.FromSlash(f[0])
 	}
 	return ""
 }

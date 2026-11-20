@@ -228,9 +228,18 @@ func TestTransitionNotice(t *testing.T) {
 		t.Fatalf("status: %s (%v)", st.String(), err)
 	}
 	st.Reset()
+	// A session no hook has seen is "not tracked", not clean.
+	runStatus([]string{"--session", "fresh", "--plain"}, strings.NewReader(""), &st)
+	if !strings.Contains(st.String(), "⚪ provguard: not tracked · audit") {
+		t.Fatalf("plain status: %q", st.String())
+	}
+	// A clean call records the session, so it then shows as clean.
+	run(map[string]any{"session_id": "fresh", "hook_event_name": "PostToolUse", "tool_name": "Read",
+		"tool_input": map[string]any{"file_path": "/p/README.md"}, "tool_response": map[string]any{"file": map[string]any{"content": "hello"}}})
+	st.Reset()
 	runStatus([]string{"--session", "fresh", "--plain"}, strings.NewReader(""), &st)
 	if !strings.Contains(st.String(), "🟢 provguard: clean · audit") {
-		t.Fatalf("plain status: %q", st.String())
+		t.Fatalf("plain status after a clean call: %q", st.String())
 	}
 }
 

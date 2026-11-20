@@ -72,7 +72,7 @@ Downloading a binary from the [Releases page](https://github.com/durgavarapravee
 
 From source instead (Go 1.26+): `go install github.com/durgavarapraveen/provguard/cmd/provguard@latest`, then `provguard init`.
 
-Releases from v0.5.2 on carry signed build provenance (Sigstore). To check that a binary was built from this repository by its release workflow, run `gh attestation verify <file> --repo durgavarapraveen/provguard`.
+Releases after v0.5.1 carry signed build provenance (Sigstore); v0.5.1 and older do not. To check that a binary was built from this repository by its release workflow, run `gh attestation verify <file> --repo durgavarapraveen/provguard`.
 
 **2. Work as usual.** Nothing changes until something risky happens. Then your agent shows:
 
@@ -148,6 +148,7 @@ Regex guards check one command at a time and remember nothing about what the age
 | 🟡 untrusted | The agent read content you do not control: web pages, web searches, GitHub issues, `curl` output, repos or MCP servers you have not marked as trusted |
 | 🟠 sensitive | The agent read secrets: `.env`, keys, tokens |
 | 🔴 both | Both of the above: the riskiest state |
+| ⚪ not tracked | No provguard hook has seen this session (`provguard status` only): it may have run without provguard |
 
 | Where | How |
 |---|---|
@@ -161,7 +162,7 @@ Regex guards check one command at a time and remember nothing about what the age
 | Agent | Shows the notice | Title icon | Source |
 |---|---|---|---|
 | Claude Code CLI | Yes (`systemMessage`) | Yes | Claude Code hook docs |
-| Claude desktop app, Code tab | No: the app did not show it in our live test | Yes | Live test |
+| Claude desktop app, Code tab | Through the agent: the app did not show `systemMessage` in our live test, so provguard also gives the notice to the agent and asks it to tell you. Not yet tested live in the app. | Yes | Live test (notice); hook docs (agent context) |
 | OpenAI Codex | Yes, as a warning | No | Codex hook docs |
 | Gemini CLI | Yes | No | Gemini CLI hook docs |
 | Factory Droid | Yes, as a hook warning | No | Droid hook docs |
@@ -217,7 +218,7 @@ Run `provguard help` for the full list.
 | `provguard review [--days N]` | What was stopped (or would have been), grouped, with the next step |
 | `provguard allow <token>` | Let one blocked call through once |
 | `provguard explain [session\|latest]` | Why a session is untrusted or sensitive, and every policy hit |
-| `provguard reset [session\|latest] --yes` | Clear a session's untrusted label after you checked it |
+| `provguard reset [session|latest] [--source N] --yes` | Clear a session's untrusted label after you checked it. Without `--yes` it lists the untrusted sources, numbered; `--source N` clears only that one, and the label goes with the last source. |\|latest] --yes` | Clear a session's untrusted label after you checked it |
 | `provguard check [--untrusted] [--secrets] "<command>"` | What provguard would do with a shell command, and why, without running it. Exit code 0 when allowed, 1 when it would ask or block. `--json` for scripts. |
 | `provguard doctor --live` | Send a test write to a protected file through each installed agent's hook and check that provguard blocks it in that agent's reply format |
 | `provguard doctor [dir] [--json]` | Check hook integrity; scan a repo for settings that turn hooks off, repo hooks, `.mcp.json` servers and risky instruction files. Exits 1 on HIGH. |
@@ -322,10 +323,10 @@ Set `PROVGUARD_HOME` to use another folder.
 provguard is one layer, not a sandbox. Read [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md) before relying on it. In short:
 
 - It cannot know values that exist only at run time, and the PowerShell analysis is a heuristic.
-- Instruction files that the agent loads by itself are invisible to hooks. provguard covers this only through `trusted_repo_owners`, `doctor` and the reverse-shell rule.
-- A cloned repo can turn all hooks off through its settings file before any hook runs ([finding F3](docs/FINDINGS.md)). Run `provguard doctor` first, or use managed settings in teams.
+- Instruction files that the agent loads by itself are invisible to hooks. At session start provguard checks the ones in the repo root and working folder for hidden text and strong signs of an attack; files that load later, and subtler injections, are not caught. `trusted_repo_owners` and `doctor` add to this.
+- A cloned repo can turn all hooks off through its settings file before any hook runs ([finding F3](docs/FINDINGS.md)). provguard warns when an agent clones such a repo; run `provguard doctor` on a repo you cloned yourself, or use managed settings in teams.
 - In Cursor, provguard runs only while *Third-Party Imports* is on. Cursor keeps that switch in its own settings, which provguard does not guard.
-- The install scripts check the binary against the release's own `SHA256SUMS`. That catches a broken download, not a compromised release. For that, check the signed build provenance with `gh attestation verify` (releases from v0.5.2 on).
+- The install scripts check the binary against the release's own `SHA256SUMS`, which catches a broken download, not a compromised release. For releases after v0.5.1 they also check the signed build provenance (`gh attestation verify`) when the GitHub CLI is installed and signed in, and refuse to install a binary that fails it. Without `gh` they say the check was skipped.
 
 ## Docs
 

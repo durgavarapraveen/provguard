@@ -64,6 +64,21 @@ try {
     if ($want -ne $got) { Fail "checksum mismatch for $name (expected $want, got $got); nothing installed" }
     Write-Host 'Checksum OK.'
 
+    # Build provenance (Sigstore) proves the binary was built from this repo
+    # by its release workflow, which a checksum from the same release cannot.
+    # Releases up to 0.5.1 have none. It needs the GitHub CLI, signed in.
+    if (-not $env:PROVGUARD_DIST) {
+        if ($version -match '^0\.([0-4]\.|5\.[01]$)') {
+            Write-Host "Provenance: release $version has no signed provenance (releases after 0.5.1 do)."
+        } elseif ((Get-Command gh -ErrorAction SilentlyContinue) -and ($null -ne (& gh auth token 2>$null))) {
+            & gh attestation verify (Join-Path $tmp $name) --repo $repo *> $null
+            if ($LASTEXITCODE -ne 0) { Fail "build provenance check failed for ${name}: it was not built by $repo's release workflow; nothing installed" }
+            Write-Host "Provenance OK (built by $repo's release workflow)."
+        } else {
+            Write-Host "Provenance not checked: install the GitHub CLI (gh) and sign in, then run: gh attestation verify <file> --repo $repo"
+        }
+    }
+
     $bin = Join-Path $tmp 'provguard.exe'
     Move-Item (Join-Path $tmp $name) $bin
 

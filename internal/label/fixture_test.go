@@ -61,3 +61,14 @@ func TestFixtureLinkIsNotAFixture(t *testing.T) {
 		t.Error("a file reached through a link in testdata/ was treated as a fixture")
 	}
 }
+
+// A random-looking token in a test file may be a real one committed by
+// mistake, so it still marks the session sensitive.
+func TestRealLookingTokenInFixtureCounts(t *testing.T) {
+	real := "ghp_" + "R7kQ2mXv9LpZ4tW8nB3cYj6HdF1sG5aE0uKo"
+	out := map[string]any{"file": map[string]any{"content": "auth := \"" + real + "\""}}
+	r := Post(post("Read", map[string]any{"file_path": "/proj/internal/api/client_test.go"}, out), Env{})
+	if !r.Sensitive {
+		t.Error("a real-looking token in a test file was ignored")
+	}
+}

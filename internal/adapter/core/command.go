@@ -4,24 +4,20 @@ import (
 	"fmt"
 	"path/filepath"
 	"runtime"
-	"strings"
+
+	"github.com/durgavarapraveen/provguard/internal/install"
 )
 
 // HookCommand returns the command line that runs
 // `provguard hook --agent <agent> <event>` with the binary at exe, for a
-// POSIX shell (sh, bash) and for Windows. On Windows the path is left
-// unquoted when it has no space, because that form works in cmd,
-// PowerShell and sh alike; a path with a space needs PowerShell's call
-// operator (&).
+// POSIX shell (sh, bash) and for Windows. On Windows the path is left bare
+// when it has only plain characters, because that form works in cmd,
+// PowerShell and sh alike; any other path needs PowerShell's call
+// operator (&). The quoting is in install.QuotePOSIX and QuotePowerShell.
 func HookCommand(exe, agent, event string) (posix, windows string) {
 	exe = filepath.ToSlash(exe)
-	args := fmt.Sprintf("hook --agent %s %s", agent, event)
-	posix = fmt.Sprintf("%q %s", exe, args)
-	windows = exe + " " + args
-	if strings.ContainsAny(exe, " \t") {
-		windows = fmt.Sprintf("& %q %s", exe, args)
-	}
-	return posix, windows
+	args := fmt.Sprintf(" hook --agent %s %s", agent, event)
+	return install.QuotePOSIX(exe) + args, install.QuotePowerShell(exe) + args
 }
 
 // HookCommandHere is HookCommand for agents that take a single command and

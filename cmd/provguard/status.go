@@ -20,7 +20,7 @@ type trustState struct {
 	Taint     string `json:"taint_reason,omitempty"`
 	Secret    string `json:"sensitive_reason,omitempty"`
 	Profile   string `json:"profile"`
-	Level     string `json:"level"` // clean | untrusted | sensitive | both
+	Level     string `json:"level"` // clean | untrusted | sensitive | both | not_tracked | unreadable
 }
 
 // runStatus prints a session's trust state. Used as a Claude Code status
@@ -54,7 +54,13 @@ func runStatus(args []string, stdin io.Reader, w io.Writer) int {
 		}
 	}
 	st := trustState{Session: id, Level: "clean"}
-	if s, err := store.Get(home, id); err == nil {
+	s, err := store.Get(home, id)
+	switch {
+	case !store.Exists(home, id):
+		st.Level = "not_tracked"
+	case err != nil:
+		st.Level = "unreadable"
+	default:
 		st.Tainted, st.Sensitive = s.Tainted, s.Sensitive
 		if len(s.TaintSources) > 0 {
 			st.Taint = s.TaintSources[0].Tool + ": " + s.TaintSources[0].Reason
@@ -93,6 +99,9 @@ func statusLine(st trustState, color bool) string {
 		"untrusted": {"🟡", "UNTRUSTED", "\x1b[33m"},
 		"sensitive": {"🟠", "SENSITIVE", "\x1b[38;5;208m"},
 		"both":      {"🔴", "UNTRUSTED + SENSITIVE", "\x1b[31;1m"},
+		// No provguard hook has seen the session: it may run without provguard.
+		"not_tracked": {"⚪", "not tracked", "\x1b[2m"},
+		"unreadable":  {"⚪", "record unreadable (run provguard doctor)", "\x1b[33m"},
 	}[st.Level]
 	if !color {
 		return fmt.Sprintf("%s provguard: %s · %s", l.icon, l.text, st.Profile)
