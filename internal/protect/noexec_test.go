@@ -62,3 +62,26 @@ func TestConfigChangeBypasses(t *testing.T) {
 		t.Errorf("reading the settings denied: %s", v.Reason)
 	}
 }
+
+// find and fd run a command only after an exec option, so a path or pattern
+// that contains "provguard" is not taken for running provguard.
+func TestFindPathNamedProvguard(t *testing.T) {
+	dir := t.TempDir()
+	home := filepath.Join(dir, "home", ".provguard")
+	for cmd, deny := range map[string]bool{
+		`find . -name "*.go" -path "*provguard*"`:          false,
+		`find /src/provguard -name x`:                      false,
+		`fd provguard src`:                                 false,
+		`find /src/provguard -name x -exec grep -l y {} +`: false,
+		`find . -exec provguard config mode audit \;`:      true,
+		`find . -execdir sh -c 'provguard reset' \;`:       true,
+		`fd x -x provguard config`:                         true,
+		`fd x --exec-batch provguard allow`:                true,
+		`xargs echo provguard`:                             true, // xargs: every argument is the command
+	} {
+		v := Check(preIn("Bash", dir, map[string]any{"command": cmd}), home, nil)
+		if v.Deny != deny {
+			t.Errorf("%s: deny=%v, want %v (%s)", cmd, v.Deny, deny, v.Reason)
+		}
+	}
+}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -144,6 +145,9 @@ func handle(ad core.Adapter, e event.Event, out *hookOutput, rec *audit.Record) 
 		if err := applyLabels(home, cfg, e, rec); err != nil {
 			rec.Error = err.Error()
 		}
+		if e.Kind == event.PostTool {
+			warnClonedRepo(e, rec)
+		}
 	case event.SessionBeg:
 		store.GC(home)
 		allowonce.GC(home, time.Now())
@@ -153,6 +157,9 @@ func handle(ad core.Adapter, e event.Event, out *hookOutput, rec *audit.Record) 
 		}
 		audit.GC(home, days, time.Now())
 		if err := untrustedRepoAtStart(home, cfg, e, rec); err != nil {
+			rec.Error = err.Error()
+		}
+		if err := riskyInstructionsAtStart(home, e, rec); err != nil {
 			rec.Error = err.Error()
 		}
 		if rec.Notice == "" {
@@ -325,6 +332,129 @@ func untrustedRepoAtStart(home string, cfg config.Config, e event.Event, rec *au
 	})
 }
 
+// riskyInstructionsAtStart marks a session untrusted when an instruction file
+// that the agent loads without a tool call (CLAUDE.md, AGENTS.md, …) hides
+// text or carries a strong sign of an attack. No hook sees those files load,
+// so this is the one chance to check them. Hidden text also escalates the
+// risky-action rules to deny, as it does for content read later.
+func riskyInstructionsAtStart(home string, e event.Event, rec *audit.Record) error {
+	if e.Cwd == "" || e.SessionID == "" {
+		return nil
+	}
+	file, hidden, what := doctor.InstructionRisk(label.RepoRoot(e.Cwd+"/x"), e.Cwd)
+	if file == "" {
+		return nil
+	}
+	reason := "instruction_file:" + filepath.Base(file) + ":" + strings.ReplaceAll(what, " ", "_")
+	if hidden != "" {
+		reason = "hidden_text:" + hidden
+	}
+	rec.Labels = append(rec.Labels, "untrusted:"+reason)
+	return store.Update(home, e.SessionID, func(s *store.Session) error {
+		wasT, wasS, wasH := s.Tainted, s.Sensitive, len(s.HiddenSources) > 0
+		defer func() {
+			if n := transitionNotice(wasT, wasS, wasH, s); n != "" {
+				rec.Notice = n + " (" + file + ")"
+			}
+		}()
+		now := time.Now().UTC()
+		src := store.Source{At: now, Tool: "SessionStart", Reason: reason}
+		if hidden != "" {
+			src.Reason = hidden
+			s.MarkHidden(src)
+		} else {
+			s.MarkTainted(src)
+		}
+		s.AddStep(store.Step{At: now, Event: e.RawEvent, Labels: []string{"untrusted:" + reason}})
+		rec.SessionTainted = true
+		return nil
+	})
+}
+
+// warnClonedRepo checks a repo the agent just cloned. A repo whose settings
+// set disableAllHooks turns provguard off when you open it, before any hook
+// can run, so this is the last moment provguard can say so.
+func warnClonedRepo(e event.Event, rec *audit.Record) {
+	cmd, _ := e.ToolInput["command"].(string)
+	if !strings.Contains(cmd, "clone") {
+		return
+	}
+	d := shell.Bash
+	if e.ToolName == "PowerShell" {
+		d = shell.PowerShell
+	}
+	an := shell.Analyze(cmd, d)
+	for _, dir := range clonedDirs(an, e.Cwd) {
+		for _, f := range doctor.RepoSettings(dir) {
+			if f.Severity != doctor.High {
+				continue
+			}
+			rec.Labels = append(rec.Labels, "cloned_repo_turns_hooks_off")
+			n := "provguard: ⚠ the repo just cloned to " + dir + " turns provguard off when you open it (" + f.Message +
+				"). Do not open it in an agent until you have checked " + filepath.Join(dir, ".claude") + "."
+			if rec.Notice != "" {
+				n = rec.Notice + " " + n
+			}
+			rec.Notice = n
+			return
+		}
+	}
+}
+
+// clonedDirs: the folders `git clone` writes in a command.
+func clonedDirs(an *shell.Analysis, cwd string) []string {
+	var out []string
+	for _, d := range an.Cds { // cd /src && git clone …
+		if filepath.IsAbs(d) {
+			cwd = d
+		} else {
+			cwd = filepath.Join(cwd, d)
+		}
+	}
+	for _, c := range an.Cmds {
+		if c.Name != "git" {
+			continue
+		}
+		args := c.Args[1:]
+		i := 0
+		for i < len(args) && strings.HasPrefix(args[i], "-") { // git -C dir clone …
+			if args[i] == "-C" || args[i] == "-c" {
+				i++
+			}
+			i++
+		}
+		if i >= len(args) || args[i] != "clone" {
+			continue
+		}
+		var plain []string
+		for j := i + 1; j < len(args); j++ {
+			a := args[j]
+			switch {
+			case a == "-b" || a == "--branch" || a == "--depth" || a == "-o" || a == "--origin" || a == "-c" || a == "--config" || a == "--reference":
+				j++
+			case strings.HasPrefix(a, "-"):
+			default:
+				plain = append(plain, a)
+			}
+		}
+		if len(plain) == 0 {
+			continue
+		}
+		dir := ""
+		if len(plain) > 1 {
+			dir = plain[1]
+		} else {
+			u := strings.TrimSuffix(strings.TrimRight(plain[0], "/\\"), ".git")
+			dir = u[strings.LastIndexAny(u, "/\\:")+1:]
+		}
+		if !filepath.IsAbs(dir) {
+			dir = filepath.Join(cwd, dir)
+		}
+		out = append(out, dir)
+	}
+	return out
+}
+
 // respond gives a decision on a tool call in the agent's format (stdout,
 // stderr and exit code, as its adapter says) and records it.
 func respond(out *hookOutput, rec *audit.Record, ad core.Adapter, d core.Decision, rule, reason string) {
@@ -367,6 +497,11 @@ func applyLabels(home string, cfg config.Config, e event.Event, rec *audit.Recor
 
 	newOwners := len(snap.RepoOwners) > ownersBefore
 	if !res.Untrusted && !res.Sensitive && len(res.Secrets) == 0 && !newOwners {
+		// Save a clean session once, so `status` can tell it from one that
+		// no provguard hook has seen ("not tracked").
+		if e.SessionID != "" && !store.Exists(home, e.SessionID) {
+			return store.Update(home, e.SessionID, func(*store.Session) error { return nil })
+		}
 		return nil
 	}
 
@@ -401,6 +536,7 @@ func applyLabels(home string, cfg config.Config, e event.Event, rec *audit.Recor
 		if keyErr == nil && key != nil {
 			for _, m := range res.Secrets {
 				s.AddFingerprints(key.Of(m.Value))
+				s.AddChunks(key.Chunks(m.Value)...)
 			}
 		}
 		if labels := res.Labels(); len(labels) > 0 {

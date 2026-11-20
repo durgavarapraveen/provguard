@@ -44,12 +44,19 @@ func runExplain(args []string, w io.Writer) int {
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
+	// Flags may also follow the session id (reset latest --source 2 --yes).
+	arg := fs.Arg(0)
+	if fs.NArg() > 1 {
+		if err := fs.Parse(fs.Args()[1:]); err != nil {
+			return 2
+		}
+	}
 	home, err := audit.Home()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		return 1
 	}
-	id, err := resolveSession(home, fs.Arg(0))
+	id, err := resolveSession(home, arg)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		return 1
@@ -109,15 +116,23 @@ func policyHits(home, id string) []audit.Record {
 func runReset(args []string, w io.Writer) int {
 	fs := flag.NewFlagSet("reset", flag.ContinueOnError)
 	yes := fs.Bool("yes", false, "clear the untrusted label (without it, only show what would change)")
+	source := fs.Int("source", 0, "clear only this untrusted source (its number in the list); the label stays while other sources remain")
 	if err := fs.Parse(args); err != nil {
 		return 2
+	}
+	// Flags may also follow the session id (reset latest --source 2 --yes).
+	arg := fs.Arg(0)
+	if fs.NArg() > 1 {
+		if err := fs.Parse(fs.Args()[1:]); err != nil {
+			return 2
+		}
 	}
 	home, err := audit.Home()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		return 1
 	}
-	id, err := resolveSession(home, fs.Arg(0))
+	id, err := resolveSession(home, arg)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		return 1
@@ -128,15 +143,36 @@ func runReset(args []string, w io.Writer) int {
 		return 1
 	}
 	fmt.Fprintf(w, "Session %s: untrusted=%s (%d sources, %d URLs/hosts)\n", id, yesNo(s.Tainted), len(s.TaintSources), len(s.UntrustedValues))
+	for i, src := range s.TaintSources {
+		fmt.Fprintf(w, "  %d. %s  %s: %s\n", i+1, src.At.Local().Format("2006-01-02 15:04"), src.Tool, src.Reason)
+	}
 	fmt.Fprintln(w, "Reset clears the untrusted label only. Secret fingerprints stay, so secrets are still protected.")
+	if *source < 0 || *source > len(s.TaintSources) {
+		if len(s.TaintSources) == 0 {
+			fmt.Fprintln(os.Stderr, "error: this session has no untrusted sources to clear")
+		} else {
+			fmt.Fprintf(os.Stderr, "error: --source must be a number from the list (1 to %d)\n", len(s.TaintSources))
+		}
+		return 2
+	}
+	if *source > 0 {
+		fmt.Fprintf(w, "--source %d clears only that source. The label stays while other sources remain.\n", *source)
+	}
 	if !*yes {
 		fmt.Fprintln(w, "No change written. Run again with --yes to apply.")
 		return 0
 	}
+	var cleared bool
 	err = store.Update(home, id, func(s *store.Session) error {
-		s.Tainted = false
-		s.TaintSources, s.UntrustedValues, s.TaintedAgents, s.HiddenSources = nil, nil, nil, nil
-		s.AddStep(store.Step{At: time.Now().UTC(), Event: "Reset", Labels: []string{"untrusted_cleared_by_user"}})
+		now := time.Now().UTC()
+		if *source > 0 {
+			cleared = s.ClearTaintSource(*source - 1)
+			s.AddStep(store.Step{At: now, Event: "Reset", Labels: []string{fmt.Sprintf("untrusted_source_cleared_by_user:%d", *source)}})
+			return nil
+		}
+		s.ClearTaint()
+		cleared = true
+		s.AddStep(store.Step{At: now, Event: "Reset", Labels: []string{"untrusted_cleared_by_user"}})
 		return nil
 	})
 	if err != nil {
@@ -144,7 +180,12 @@ func runReset(args []string, w io.Writer) int {
 		return 1
 	}
 	_ = audit.Write(home, audit.Record{Time: time.Now(), Agent: "user", Event: "Reset", SessionID: id, Decision: "none"})
-	fmt.Fprintln(w, "Untrusted label cleared.")
+	switch {
+	case cleared:
+		fmt.Fprintln(w, "Untrusted label cleared.")
+	case *source > 0:
+		fmt.Fprintln(w, "Source cleared. The session stays untrusted: other sources remain, or older sources were dropped from the list. Run provguard reset --yes to clear all.")
+	}
 	return 0
 }
 

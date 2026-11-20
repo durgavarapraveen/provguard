@@ -405,6 +405,36 @@ func positional(args []string) []string {
 	return out
 }
 
+// rsyncValueOpts: rsync options whose value can be the next word.
+var rsyncValueOpts = map[string]bool{
+	"--exclude": true, "--include": true, "--filter": true, "-f": true, "--exclude-from": true, "--include-from": true,
+	"--files-from": true, "-e": true, "--rsh": true, "--rsync-path": true, "--log-file": true, "--log-file-format": true,
+	"--password-file": true, "--backup-dir": true, "--suffix": true, "--chmod": true, "--chown": true, "--usermap": true,
+	"--groupmap": true, "--compare-dest": true, "--copy-dest": true, "--link-dest": true, "--partial-dir": true,
+	"--temp-dir": true, "-T": true, "--bwlimit": true, "--timeout": true, "--contimeout": true, "--max-size": true,
+	"--min-size": true, "--max-delete": true, "--port": true, "--out-format": true, "--iconv": true, "--info": true,
+	"--debug": true, "--sockopts": true, "--skip-compress": true, "--modify-window": true, "--block-size": true,
+	"-B": true, "--checksum-choice": true, "--compress-choice": true, "--compress-level": true, "--address": true,
+}
+
+// positionalSkipping is positional, but the word after an option in
+// valueOpts is that option's value, not an operand.
+func positionalSkipping(args []string, valueOpts map[string]bool) []string {
+	var out []string
+	for i := 0; i < len(args); i++ {
+		x := args[i]
+		switch {
+		case x == "--":
+			return append(out, args[i+1:]...)
+		case valueOpts[x]:
+			i++
+		case !strings.HasPrefix(x, "-") || x == "-":
+			out = append(out, x)
+		}
+	}
+	return out
+}
+
 func hasFlag(args []string, short byte, long ...string) bool {
 	for _, x := range args {
 		if x == "--" {
@@ -481,6 +511,9 @@ func classify(a *Analysis, name string, args []string) {
 	case sshTools[name]:
 		a.sink(Egress, name, firstHost(pos))
 	case name == "rsync":
+		// --exclude .provguard: the word after such an option is its value,
+		// not a file to copy.
+		pos = positionalSkipping(args, rsyncValueOpts)
 		remote := false
 		for _, p := range pos {
 			if strings.Contains(p, ":") && !isWindowsDrive(p) || strings.HasPrefix(p, "rsync://") {

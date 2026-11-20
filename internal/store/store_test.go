@@ -142,3 +142,35 @@ func TestGC(t *testing.T) {
 		t.Fatal("fresh session removed")
 	}
 }
+
+// Clearing one checked source keeps the label while others remain; the last
+// one clears it, unless the list was full and may have dropped older ones.
+func TestClearTaintSource(t *testing.T) {
+	at := time.Now().UTC()
+	s := &Session{}
+	s.MarkTainted(Source{At: at, Tool: "WebFetch", Reason: "web"})
+	s.MarkHidden(Source{At: at, Tool: "Read", Reason: "unicode_tags"})
+	s.AddValues("evil.test")
+	if s.ClearTaintSource(1) || !s.Tainted || len(s.HiddenSources) != 0 || len(s.TaintSources) != 1 {
+		t.Fatalf("after clearing 1 of 2: %+v", s)
+	}
+	if !s.ClearTaintSource(0) || s.Tainted || len(s.UntrustedValues) != 0 {
+		t.Fatalf("last source did not clear the label: %+v", s)
+	}
+	if s.ClearTaintSource(0) {
+		t.Error("cleared a source that does not exist")
+	}
+
+	full := &Session{}
+	for i := 0; i < MaxSources+5; i++ {
+		full.MarkTainted(Source{At: at, Tool: "WebFetch", Reason: "web"})
+	}
+	for len(full.TaintSources) > 0 {
+		if full.ClearTaintSource(0) {
+			t.Fatal("a capped list cleared the label: older sources may be missing")
+		}
+	}
+	if !full.Tainted {
+		t.Error("label lost")
+	}
+}

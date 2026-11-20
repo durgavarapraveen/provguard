@@ -161,13 +161,12 @@ func Post(e event.Event, env Env) Result {
 	}
 
 	// Secrets: all patterns for known-sensitive content, strong patterns elsewhere.
-	// Test fixtures hold fake tokens on purpose, so a token
-	// found while reading or editing one file of tests does not count.
-	// The tokens are still fingerprinted, so a real token committed to a
-	// test file cannot be sent out unnoticed (rule 1); only the session
-	// label is skipped.
+	// Test fixtures hold fake tokens on purpose, so a token that looks fake
+	// (redact.LooksFake), found while reading or editing one file of tests,
+	// does not count. A random-looking token there counts: it may be a real
+	// one committed by mistake. All tokens are fingerprinted either way.
 	r.Secrets = redact.Find(text, r.Sensitive)
-	if !r.Sensitive && len(r.Secrets) > 0 && !testFixture(e) {
+	if !r.Sensitive && len(r.Secrets) > 0 && !(testFixture(e) && allFake(r.Secrets)) {
 		r.sensitive("secret_in_output:" + r.Secrets[0].Kind)
 	}
 	// Text hidden from the reader makes any content untrusted, even a file
@@ -180,6 +179,15 @@ func Post(e event.Event, env Env) Result {
 		r.Values = Values(text)
 	}
 	return r
+}
+
+func allFake(ms []redact.Match) bool {
+	for _, m := range ms {
+		if !redact.LooksFake(m.Value) {
+			return false
+		}
+	}
+	return true
 }
 
 // fileTools read or change exactly one file, named by file_path.
