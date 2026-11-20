@@ -90,7 +90,7 @@ func HookIntegrity(o Options) []Finding {
 			out = append(out, Finding{High, "hooks", "no provguard hook for " + ev + " in " + o.UserSettings + " (run provguard init --yes)"})
 			continue
 		}
-		bin := commandBinary(cmd)
+		bin := install.CommandProgram(cmd)
 		if _, err := os.Stat(bin); err != nil {
 			out = append(out, Finding{High, "binary", ev + " hook runs " + bin + ", which does not exist"})
 			continue
@@ -101,26 +101,34 @@ func HookIntegrity(o Options) []Finding {
 	}
 	out = append(out, failClosedFindings(o, hooks)...)
 	if o.Repo != "" {
-		for _, name := range []string{"settings.json", "settings.local.json"} {
-			p := filepath.Join(o.Repo, ".claude", name)
-			ps, err := install.Load(p)
-			if err != nil {
-				out = append(out, Finding{Medium, "repo settings", p + " is not valid JSON"})
-				continue
-			}
-			if b, _ := ps["disableAllHooks"].(bool); b {
-				out = append(out, Finding{High, "repo settings", p + " sets disableAllHooks: opening this repo turns provguard off"})
-			}
-			if ph, ok := ps["hooks"].(map[string]any); ok && len(ph) > 0 {
-				for ev, v := range ph {
-					for _, c := range hookCommands(v) {
-						out = append(out, Finding{Medium, "repo settings", p + " adds a " + ev + " hook that runs: " + c})
-					}
+		out = append(out, RepoSettings(o.Repo)...)
+	}
+	return out
+}
+
+// RepoSettings checks a repo's own agent settings: disableAllHooks turns
+// provguard off the moment the repo is opened, before any hook runs.
+func RepoSettings(repo string) []Finding {
+	var out []Finding
+	for _, name := range []string{"settings.json", "settings.local.json"} {
+		p := filepath.Join(repo, ".claude", name)
+		ps, err := install.Load(p)
+		if err != nil {
+			out = append(out, Finding{Medium, "repo settings", p + " is not valid JSON"})
+			continue
+		}
+		if b, _ := ps["disableAllHooks"].(bool); b {
+			out = append(out, Finding{High, "repo settings", p + " sets disableAllHooks: opening this repo turns provguard off"})
+		}
+		if ph, ok := ps["hooks"].(map[string]any); ok && len(ph) > 0 {
+			for ev, v := range ph {
+				for _, c := range hookCommands(v) {
+					out = append(out, Finding{Medium, "repo settings", p + " adds a " + ev + " hook that runs: " + c})
 				}
 			}
-			if _, ok := ps["allowManagedHooksOnly"]; ok {
-				out = append(out, Finding{Info, "repo settings", p + " sets allowManagedHooksOnly (only effective in managed settings)"})
-			}
+		}
+		if _, ok := ps["allowManagedHooksOnly"]; ok {
+			out = append(out, Finding{Info, "repo settings", p + " sets allowManagedHooksOnly (only effective in managed settings)"})
 		}
 	}
 	return out
@@ -150,7 +158,7 @@ func HookBinaryVersion(o Options) []Finding {
 	if cmd == "" {
 		return nil // HookIntegrity reports a missing hook
 	}
-	bin := commandBinary(cmd)
+	bin := install.CommandProgram(cmd)
 	if sameBinary(bin) {
 		return []Finding{{Info, "binary", "hooks run this binary, provguard " + o.Version}}
 	}
@@ -272,21 +280,45 @@ func hookCommands(v any) []string {
 	return out
 }
 
-// commandBinary returns the program path of a hook command line.
-func commandBinary(cmd string) string {
-	cmd = strings.TrimSpace(cmd)
-	if strings.HasPrefix(cmd, `"`) {
-		if i := strings.Index(cmd[1:], `"`); i >= 0 {
-			return filepath.FromSlash(cmd[1 : i+1])
-		}
-	}
-	return filepath.FromSlash(strings.Fields(cmd)[0])
-}
-
 func under(p, dir string) bool {
 	n := strings.ToLower(filepath.Clean(p))
 	d := strings.ToLower(filepath.Clean(dir))
 	return strings.HasPrefix(n, d+string(filepath.Separator))
+}
+
+// startRisks: signs in an auto-loaded instruction file that make a session
+// untrusted from its start. Ordinary docs rarely carry them.
+var startRisks = map[string]bool{"prompt-injection phrase": true, "turns hooks off": true, "decode and run": true}
+
+// InstructionRisk checks the instruction files the agent loads without a
+// tool call in each folder of dirs. It returns the first file with hidden
+// text (hidden is its label.HiddenText kind) or another strong sign of an
+// attack (what), or "" for file.
+func InstructionRisk(dirs ...string) (file, hidden, what string) {
+	seen := map[string]bool{}
+	for _, d := range dirs {
+		for _, name := range instructionFiles {
+			p := filepath.Join(d, filepath.FromSlash(name))
+			if d == "" || seen[p] {
+				continue
+			}
+			seen[p] = true
+			b, err := os.ReadFile(p)
+			if err != nil || len(b) > 4<<20 {
+				continue
+			}
+			text := string(b)
+			if k := label.HiddenText(text); k != "" {
+				return p, k, ""
+			}
+			for _, s := range suspicious {
+				if startRisks[s.what] && s.re.MatchString(text) {
+					return p, "", s.what
+				}
+			}
+		}
+	}
+	return "", "", ""
 }
 
 // instructionFiles are loaded into the agent's context automatically.

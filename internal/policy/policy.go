@@ -143,7 +143,7 @@ func evaluate(in Input) Result {
 
 	// 1. Secret in the call. Only for sinks that can carry data somewhere.
 	if len(s.Fingerprints) > 0 && in.Key != nil && carriesData(withoutAllowed(in)) {
-		if kind := SecretIn(in.Text, s.Fingerprints, in.Key); kind != "" {
+		if kind := secretOrPiece(in.Text, s, in.Key); kind != "" {
 			return result(Deny, "secret_in_sink", fmt.Sprintf(
 				"this %s call contains a secret this session read earlier (%s; matched as %s)",
 				in.Tool, firstSource(s.SensitiveSources), kind), in.Sinks)
@@ -154,7 +154,7 @@ func evaluate(in Input) Result {
 	// remote skip rule 2, so without this check an agent could commit .env
 	// and push it to a public repository.
 	if len(s.Fingerprints) > 0 && in.Key != nil && in.OutgoingDiff != nil && hasGitPush(in.Sinks) {
-		if kind := SecretIn(in.OutgoingDiff(), s.Fingerprints, in.Key); kind != "" {
+		if kind := secretOrPiece(in.OutgoingDiff(), s, in.Key); kind != "" {
 			return result(Deny, "secret_in_push", fmt.Sprintf(
 				"the commits this push would send contain a secret this session read earlier (%s; matched as %s)",
 				firstSource(s.SensitiveSources), kind), filter(in.Sinks, shell.Egress))

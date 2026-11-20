@@ -10,6 +10,7 @@ import (
 
 	"github.com/durgavarapraveen/provguard/internal/fingerprint"
 	"github.com/durgavarapraveen/provguard/internal/redact"
+	"github.com/durgavarapraveen/provguard/internal/store"
 )
 
 const (
@@ -147,4 +148,70 @@ func printable(b []byte) bool {
 		}
 	}
 	return true
+}
+
+// maxPieces caps the pieces checked in one call, so a huge command stays fast.
+const maxPieces = 50000
+
+// SecretPieceIn reports whether text holds a piece (fingerprint.ChunkLen
+// characters) of a random-looking secret this session read: plain,
+// reversed, or inside a base64, hex or URL encoding. It catches a secret
+// sent out in parts, one command each, when a part has at least ChunkLen
+// characters.
+func SecretPieceIn(text string, chunks []string, key fingerprint.Key) string {
+	if len(chunks) == 0 {
+		return ""
+	}
+	if len(text) > maxText {
+		text = text[:maxText]
+	}
+	want := make(map[string]bool, len(chunks))
+	for _, c := range chunks {
+		want[c] = true
+	}
+	left := maxPieces
+	h := key.Chunker()
+	scan := func(t string) bool {
+		for i := 0; i+fingerprint.ChunkLen <= len(t) && left > 0; i++ {
+			left--
+			if want[h.Of(t[i:i+fingerprint.ChunkLen])] {
+				return true
+			}
+		}
+		return false
+	}
+	n := 0
+	for _, tok := range tokenRe.FindAllString(text, -1) {
+		if n++; n > maxTokens || left <= 0 {
+			break
+		}
+		if len(tok) < fingerprint.ChunkLen {
+			continue
+		}
+		if scan(tok) || scan(reverse(tok)) {
+			return "part"
+		}
+		for kind, dec := range decodings(tok) {
+			if scan(dec) {
+				return "part, " + kind
+			}
+		}
+	}
+	return ""
+}
+
+func reverse(s string) string {
+	r := []rune(s)
+	for i, j := 0, len(r)-1; i < j; i, j = i+1, j-1 {
+		r[i], r[j] = r[j], r[i]
+	}
+	return string(r)
+}
+
+// secretOrPiece: SecretIn, then SecretPieceIn.
+func secretOrPiece(text string, s *store.Session, key fingerprint.Key) string {
+	if kind := SecretIn(text, s.Fingerprints, key); kind != "" {
+		return kind
+	}
+	return SecretPieceIn(text, s.ChunkFingerprints, key)
 }

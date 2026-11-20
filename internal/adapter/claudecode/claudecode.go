@@ -125,6 +125,9 @@ func (Adapter) Probe(path string) (string, []byte) {
 
 func (Adapter) CanAsk() bool { return true }
 
+// contextEvents take hookSpecificOutput.additionalContext.
+var contextEvents = map[string]bool{"PostToolUse": true, "UserPromptSubmit": true, "SessionStart": true}
+
 // Feedback uses "systemMessage" (shown to the user) and
 // hookSpecificOutput.sessionTitle (SessionStart and UserPromptSubmit).
 // PreToolUse answers only with decisions.
@@ -133,11 +136,22 @@ func (Adapter) Feedback(e event.Event, notice, title string) []byte {
 		return nil
 	}
 	out := map[string]any{}
+	spec := map[string]any{"hookEventName": e.RawEvent}
 	if notice != "" {
 		out["systemMessage"] = notice
+		// The desktop app does not show systemMessage, so the agent gets the
+		// notice too and passes it on (additionalContext reaches the model:
+		// docs/FINDINGS.md F5).
+		if contextEvents[e.RawEvent] {
+			spec["additionalContext"] = "Message from provguard, the user's security hook, for the user: \"" + notice +
+				"\" Tell the user this in one short line in your reply, unless you already did."
+		}
 	}
 	if title != "" {
-		out["hookSpecificOutput"] = map[string]any{"hookEventName": e.RawEvent, "sessionTitle": title}
+		spec["sessionTitle"] = title
+	}
+	if len(spec) > 1 {
+		out["hookSpecificOutput"] = spec
 	}
 	if len(out) == 0 {
 		return nil

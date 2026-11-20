@@ -138,3 +138,29 @@ func TestPreToolResponseShape(t *testing.T) {
 		t.Fatalf("bad response: %s", b)
 	}
 }
+
+// A notice goes to the user (systemMessage) and, on events that take it, to
+// the agent too, because the desktop app does not show systemMessage.
+func TestFeedbackNoticeReachesAgent(t *testing.T) {
+	for ev, wantCtx := range map[string]bool{"PostToolUse": true, "UserPromptSubmit": true, "ConfigChange": false} {
+		var out struct {
+			Msg  string `json:"systemMessage"`
+			Spec struct {
+				Event string `json:"hookEventName"`
+				Ctx   string `json:"additionalContext"`
+				Title string `json:"sessionTitle"`
+			} `json:"hookSpecificOutput"`
+		}
+		b := Adapter{}.Feedback(event.Event{Kind: event.PostTool, RawEvent: ev}, "provguard: 🟡 now UNTRUSTED", "")
+		if err := json.Unmarshal(b, &out); err != nil || out.Msg != "provguard: 🟡 now UNTRUSTED" {
+			t.Fatalf("%s: %s (%v)", ev, b, err)
+		}
+		if got := out.Spec.Ctx != ""; got != wantCtx {
+			t.Errorf("%s: additionalContext present=%v, want %v: %s", ev, got, wantCtx, b)
+		}
+	}
+	b := Adapter{}.Feedback(event.Event{Kind: event.UserPrompt, RawEvent: "UserPromptSubmit"}, "", "🟡 Fix")
+	if string(b) != `{"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","sessionTitle":"🟡 Fix"}}` {
+		t.Errorf("title only: %s", b)
+	}
+}

@@ -1,15 +1,29 @@
 # Changelog
 
-## Unreleased
+## v0.5.2 — fewer false alarms, trust states, security hardening
 
 ### Changed
+- `provguard status` shows ⚪ **not tracked** for a session that no provguard hook has seen, instead of "clean", and asks you to run `doctor` when a session record cannot be read. To tell the two apart, a hook now saves a clean session once (one small file per session).
+- `provguard reset` lists the untrusted sources, numbered, and `--source N` clears only one of them after you checked it. The label goes with the last source, unless older sources were dropped from the full list (50). Flags may now follow the session id (`reset latest --source 2 --yes`; the same for `explain`).
+- Claude Code: a trust-state notice also goes to the agent (`additionalContext`), which is asked to tell you, because the desktop app does not show `systemMessage`. In the CLI you may see the notice twice. Not yet tested live in the desktop app.
+- A token found while reading a test file marks the session sensitive again when it looks random. Only tokens that look fake (they name themselves "fake", "test", "example" and the like, decode to such a name, or are too regular to be random) are skipped, so a real token committed to a test file is no longer missed.
 - `provguard init` ends with a short legend of the trust states (🟡 untrusted, 🟠 sensitive, 🔴 both), what the chosen mode does in each, and `provguard explain latest` to see why a session has its state.
 - `provguard review` counts the sessions in each trust state and points to `provguard explain latest`, because many agents (and the Claude desktop app) do not show provguard's notice when a state changes.
 - `provguard uninstall` names every session whose title may still show a trust icon, and says how each gets its old title back: a message in that session (the cleanup hook) or a rename. `uninstall --now` names them too, because it leaves those icons; its preview (without `--yes`) shows the list first. The app owns session titles, so provguard can change one only through a hook answer while a message is sent in that session, not at the moment of uninstall. provguard now records each marked title's text for this; records from older versions show as the session id.
 - README: a session that was renamed (by you or by a tool) does not get the title icon, because the app keeps such a title.
 - README: a table of which agents show that notice and which show a session-title icon, with the source for each (agent docs or live test).
 
+### Security
+- Self-protection blocks recursive reads of a folder that holds provguard's folder, because they read its key: `grep -r … ~`, `tar … ~`, `cp -r ~`, `rsync -a ~/`, `zip -r … ~`, `find ~ … -exec`, `find ~ | xargs …`, `rg --hidden … ~`, `Get-ChildItem ~ -Recurse | Select-String`, `Copy-Item ~ -Recurse`, `Compress-Archive ~`, also a recursive read of `.` in the home folder. A read that leaves the folder out (`--exclude-dir=.provguard`, `--exclude=.provguard`) is allowed, and so are `rg` and `ag` without `--hidden`, which skip hidden folders.
+- A secret sent out in parts is caught: for each random-looking secret a session reads, provguard also keeps fingerprints of every 10-character piece, and a call that sends one of them out (plain, reversed, or base64, hex or URL encoded) is blocked like the whole secret. This costs about 0.3 ms for a typical command and 5 ms for a 9 KB one, and only in sessions that read a secret.
+- At session start, provguard checks the instruction files the agent loads without a tool call (`CLAUDE.md`, `AGENTS.md`, `.claude/CLAUDE.md`, `GEMINI.md`, `.cursorrules`, …) in the repo root and the working folder. Hidden text marks the session untrusted with the deny escalation; a prompt-injection phrase, `disableAllHooks` or decode-and-run code marks it untrusted. The notice names the file.
+- After an agent runs `git clone`, provguard checks the new repo's `.claude/settings.json`: if it sets `disableAllHooks`, which turns provguard off as soon as the repo is opened, you get a warning not to open it until you have checked it.
+- The install scripts check the signed build provenance (`gh attestation verify`) of releases after 0.5.1 when the GitHub CLI is installed and signed in, and install nothing if the check fails. Without `gh` they say the check was skipped.
+
 ### Fixed
+- `rsync --exclude .provguard` (value as a separate word) was read as a folder to copy, so provguard thought rsync would write `<destination>/.provguard` and blocked it. The word after an rsync option that takes a value (`--exclude`, `--include`, `--filter`, `-e`, `--exclude-from`, …) is now that option's value.
+- Hook commands quote the binary path correctly for each shell. Before, a path with `$`, a backtick or a double quote was expanded or broken by sh, and on Windows a path with `&`, `;` or parentheses was left unquoted. Paths that need it are now single-quoted (sh) or run with `& '…'` (PowerShell); ordinary paths are written as before. `doctor` reads both the new and the old forms.
+- Self-protection no longer blocks `find` or `fd` on a path or pattern that contains "provguard" (`find ~/src/provguard -name x`). They are blocked only when the command they run (after `-exec`, `-execdir`, `-ok`, `-okdir`, or fd's `-x`/`-X`) names provguard.
 - **Self-protection: agents could read provguard's key and session files** through spellings the check missed: globs (`~/.provguard/*`, `k?y`, `.prov*/key`), parts known only at run time (`$(…)`, loop variables), the whole folder (`tar`, `zip`, `grep -r`, `Copy-Item -Recurse`, a pipe from `Get-ChildItem`), `cd` into the folder followed by a relative name, the Grep tool on the folder, and MCP file servers that read or search. All of these are now blocked; listing names (`ls`, `Get-ChildItem`, MCP `list_directory`) and reading `config.json`, the audit log and the binary stay allowed. The threat model documents the remaining limit: a recursive read of the whole home folder.
 - The README and CHANGELOG no longer mention a `provguard-badge` desktop mod: it was never published.
 

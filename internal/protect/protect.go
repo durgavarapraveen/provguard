@@ -706,6 +706,9 @@ func checkShell(an *shell.Analysis, raw, home, cwd string) Verdict {
 	if m := secretMention(an, raw, home); m != "" {
 		return deny("self_protect_secret", "blocked a command that can reach provguard's key or session files ("+m+")")
 	}
+	if p := recursiveHomeRead(an, home, cwd); p != "" {
+		return deny("self_protect_secret", "blocked a recursive read of "+p+", which holds provguard's key. Leave the folder out, e.g. grep -r --exclude-dir=.provguard, tar --exclude=.provguard")
+	}
 	cds := an.Cds
 	for _, w := range an.Writes {
 		if w.Op == "vcs" {
@@ -745,6 +748,28 @@ func checkShell(an *shell.Analysis, raw, home, cwd string) Verdict {
 // argFeeders run a command with arguments that come from input at run time.
 var argFeeders = map[string]bool{"xargs": true, "parallel": true, "find": true, "fd": true, "rush": true, "foreach-object": true}
 
+// execFlags: the find and fd options whose following arguments are a command.
+var execFlags = map[string]map[string]bool{
+	"find": {"-exec": true, "-execdir": true, "-ok": true, "-okdir": true},
+	"fd":   {"-x": true, "--exec": true, "-X": true, "--exec-batch": true},
+}
+
+// runArgs returns the arguments of an arg feeder that name the command it
+// runs. find and fd run a command only after an exec option, so the paths
+// and patterns before it (find ~/src/provguard -name x) are not returned.
+func runArgs(name string, args []string) []string {
+	flags, ok := execFlags[name]
+	if !ok {
+		return args
+	}
+	for i, a := range args {
+		if flags[a] {
+			return args[i+1:]
+		}
+	}
+	return nil
+}
+
 // checkSelfCommands blocks agents from running provguard's install/reset
 // commands under any name, and from copying the protected binary out.
 func checkSelfCommands(an *shell.Analysis) Verdict {
@@ -772,7 +797,7 @@ func checkSelfCommands(an *shell.Analysis) Verdict {
 		// can turn a bare `provguard config` into a change
 		// (`echo mode audit | xargs provguard config`).
 		if argFeeders[c.Name] {
-			for _, a := range c.Args[1:] {
+			for _, a := range runArgs(c.Name, c.Args[1:]) {
 				if strings.Contains(strings.ToLower(a), "provguard") {
 					return deny("self_protect_install", "blocked running provguard through "+c.Name+", which adds arguments provguard cannot check")
 				}

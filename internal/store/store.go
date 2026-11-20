@@ -18,6 +18,7 @@ import (
 const (
 	MaxValues       = 2000 // untrusted values kept per session
 	MaxFingerprints = 500
+	MaxChunks       = 6000
 	MaxSources      = 50
 	MaxHistory      = 50
 	MaxAge          = 7 * 24 * time.Hour
@@ -52,13 +53,17 @@ type Session struct {
 	Tainted   bool      `json:"tainted"`
 	Sensitive bool      `json:"sensitive"`
 
-	TaintSources     []Source `json:"taint_sources,omitempty"`
-	SensitiveSources []Source `json:"sensitive_sources,omitempty"`
+	TaintSources []Source `json:"taint_sources,omitempty"`
+	// TaintSourcesDropped: TaintSources hit MaxSources and lost older entries.
+	TaintSourcesDropped bool     `json:"taint_sources_dropped,omitempty"`
+	SensitiveSources    []Source `json:"sensitive_sources,omitempty"`
 
 	// UntrustedValues: URLs, hosts and IPs seen in untrusted content.
 	UntrustedValues []string `json:"untrusted_values,omitempty"`
 	// Fingerprints: HMACs of secret values seen in this session.
 	Fingerprints []string `json:"fingerprints,omitempty"`
+	// ChunkFingerprints: HMACs of every piece of each random-looking secret.
+	ChunkFingerprints []string `json:"chunk_fingerprints,omitempty"`
 	// HiddenSources: content that hid text from the user (label.HiddenText).
 	HiddenSources []Source `json:"hidden_sources,omitempty"`
 	// TaintedAgents: subagent ids that read untrusted content.
@@ -72,12 +77,49 @@ type Session struct {
 // MarkTainted sets the taint flag. Taint never goes away by itself.
 func (s *Session) MarkTainted(src Source) {
 	s.Tainted = true
+	if len(s.TaintSources) >= MaxSources {
+		s.TaintSourcesDropped = true
+	}
 	s.TaintSources = appendCapped(s.TaintSources, src, MaxSources)
 }
 
 func (s *Session) MarkSensitive(src Source) {
 	s.Sensitive = true
 	s.SensitiveSources = appendCapped(s.SensitiveSources, src, MaxSources)
+}
+
+// ClearTaint removes the untrusted label and everything recorded with it.
+func (s *Session) ClearTaint() {
+	s.Tainted = false
+	s.TaintSources, s.UntrustedValues, s.TaintedAgents, s.HiddenSources = nil, nil, nil, nil
+	s.TaintSourcesDropped = false
+}
+
+// ClearTaintSource removes the untrusted source at index i (and its hidden-
+// text record), after the user checked it. The label goes only with the last
+// source, and only if the list was never capped: a full list may have
+// dropped older sources. It reports whether the label was cleared.
+func (s *Session) ClearTaintSource(i int) bool {
+	if i < 0 || i >= len(s.TaintSources) {
+		return false
+	}
+	// A full list from an older version has no flag but may have dropped some.
+	if len(s.TaintSources) >= MaxSources {
+		s.TaintSourcesDropped = true
+	}
+	src := s.TaintSources[i]
+	s.TaintSources = append(s.TaintSources[:i:i], s.TaintSources[i+1:]...)
+	for j, h := range s.HiddenSources {
+		if h.Tool == src.Tool && h.Reason == src.Reason && h.At.Equal(src.At) {
+			s.HiddenSources = append(s.HiddenSources[:j:j], s.HiddenSources[j+1:]...)
+			break
+		}
+	}
+	if len(s.TaintSources) > 0 || s.TaintSourcesDropped {
+		return false
+	}
+	s.ClearTaint()
+	return true
 }
 
 // MarkHidden records content that hid text from the user. It also taints.
@@ -88,6 +130,11 @@ func (s *Session) MarkHidden(src Source) {
 
 func (s *Session) AddValues(vs ...string) {
 	s.UntrustedValues = addUnique(s.UntrustedValues, vs, MaxValues)
+}
+
+// AddChunks records the fingerprints of secret pieces (fingerprint.Chunks).
+func (s *Session) AddChunks(fps ...string) {
+	s.ChunkFingerprints = addUnique(s.ChunkFingerprints, fps, MaxChunks)
 }
 
 func (s *Session) AddFingerprints(fps ...string) {
@@ -174,6 +221,16 @@ func Get(home, id string) (*Session, error) {
 		return nil, fmt.Errorf("unsafe session id %q", id)
 	}
 	return load(home, id)
+}
+
+// Exists reports whether provguard has a record of the session, that is,
+// whether one of its hooks ever saw it.
+func Exists(home, id string) bool {
+	if !safeID.MatchString(id) {
+		return false
+	}
+	_, err := os.Stat(path(home, id))
+	return err == nil
 }
 
 func load(home, id string) (*Session, error) {

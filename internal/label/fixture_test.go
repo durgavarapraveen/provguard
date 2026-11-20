@@ -1,6 +1,7 @@
 package label
 
 import (
+	"math/rand"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -60,4 +61,27 @@ func TestFixtureLinkIsNotAFixture(t *testing.T) {
 	if r := Post(post("Read", map[string]any{"file_path": p}, out), Env{}); !r.Sensitive {
 		t.Error("a file reached through a link in testdata/ was treated as a fixture")
 	}
+}
+
+// A random-looking token in a test file may be a real one committed by
+// mistake, so it still marks the session sensitive.
+func TestRealLookingTokenInFixtureCounts(t *testing.T) {
+	real := "ghp_" + randomBody(36) // built at run time: no secret-like text in the source
+	out := map[string]any{"file": map[string]any{"content": "auth := \"" + real + "\""}}
+	r := Post(post("Read", map[string]any{"file_path": "/proj/internal/api/client_test.go"}, out), Env{})
+	if !r.Sensitive {
+		t.Error("a real-looking token in a test file was ignored")
+	}
+}
+
+// randomBody builds a random-looking token body at run time, so no
+// secret-like text sits in the source for secret scanners to flag.
+func randomBody(n int) string {
+	const chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789"
+	r := rand.New(rand.NewSource(42))
+	b := make([]byte, n)
+	for i := range b {
+		b[i] = chars[r.Intn(len(chars))]
+	}
+	return string(b)
 }
