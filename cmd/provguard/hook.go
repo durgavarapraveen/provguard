@@ -521,7 +521,7 @@ func applyLabels(home string, cfg config.Config, e event.Event, rec *audit.Recor
 		}
 		now := time.Now().UTC()
 		if res.Hidden != "" {
-			s.MarkHidden(store.Source{At: now, Tool: e.ToolName, Reason: res.UntrustedReason})
+			s.MarkHidden(store.Source{At: now, Tool: e.ToolName, Reason: "hidden_text:" + res.Hidden}) // the kind, not the first untrusted reason: the notice names it
 		}
 		if res.Untrusted {
 			s.MarkTainted(store.Source{At: now, Tool: e.ToolName, Reason: res.UntrustedReason})

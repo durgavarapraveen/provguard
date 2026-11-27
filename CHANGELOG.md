@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+- The notice for hidden text showed an empty reason ("hides text from you ()") when the same output also made the session untrusted for another reason, such as `gh` output. It now names the kind of hidden text (for example "a run of zero-width characters"). Found live.
+
 ## v0.5.2 — fewer false alarms, trust states, security hardening
 
 ### Changed

@@ -53,6 +53,18 @@ func TestHiddenTextEndToEnd(t *testing.T) {
 	}
 }
 
+// B4: when the same output also marks the session untrusted for another
+// reason (here gh output), the notice still names the hidden-text kind.
+// Seen live as "hides text from you ()".
+func TestHiddenTextNoticeNamesKind(t *testing.T) {
+	s := newSession(t, `{"profile":"balanced"}`)
+	out := "Merged.​‌​‍​ Updating files."
+	_, _, notice := hookCall(t, s.home, post("Bash", map[string]any{"command": "gh pr view 7"}, map[string]any{"stdout": out}))
+	if !strings.Contains(notice, "hides text from you (a run of zero-width characters)") {
+		t.Errorf("notice %q", notice)
+	}
+}
+
 // A file in a trusted place still taints when it hides text: rules files
 // with invisible instructions are a known attack.
 func TestHiddenTextInLocalFile(t *testing.T) {
