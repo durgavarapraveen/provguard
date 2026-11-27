@@ -101,20 +101,31 @@ func resolveSession(home, id string) (string, error) {
 	return all[0].id, nil
 }
 
-// sameProject: one folder is the other or holds it.
+// sameProject: one folder is the other or holds it. Both are compared as
+// given and with links resolved (macOS: /var is /private/var).
 func sameProject(a, b string) bool {
 	if a == "" || b == "" {
 		return false
-	}
-	a, b = filepath.Clean(a), filepath.Clean(b)
-	if strings.EqualFold(a, b) {
-		return true
 	}
 	in := func(dir, p string) bool {
 		rel, err := filepath.Rel(dir, p)
 		return err == nil && rel != "." && !strings.HasPrefix(rel, "..") && !filepath.IsAbs(rel)
 	}
-	return in(a, b) || in(b, a)
+	for _, x := range [][2]string{{a, b}, {realDir(a), realDir(b)}} {
+		a, b := filepath.Clean(x[0]), filepath.Clean(x[1])
+		if strings.EqualFold(a, b) || in(a, b) || in(b, a) {
+			return true
+		}
+	}
+	return false
+}
+
+// realDir resolves links in dir, or returns it unchanged.
+func realDir(dir string) string {
+	if r, err := filepath.EvalSymlinks(dir); err == nil {
+		return r
+	}
+	return dir
 }
 
 // sessionName is one line that names a session: its title and folder.
