@@ -127,6 +127,8 @@ type setupChoice struct {
 	owners    []string // added to trusted_repo_owners
 	profile   string
 	blockMode string // "ask" or "deny"; "" leaves it unchanged
+	// packageCheck turns the dependency gate on or off.
+	packageCheck bool
 }
 
 func (c setupChoice) apply(cfg *config.Config) error {
@@ -136,6 +138,7 @@ func (c setupChoice) apply(cfg *config.Config) error {
 	if err := cfg.SetProfile(c.profile); err != nil {
 		return err
 	}
+	cfg.PackageCheck = c.packageCheck
 	if c.blockMode != "" {
 		return cfg.SetBlockMode(c.blockMode)
 	}
@@ -148,11 +151,11 @@ var modes = []struct{ profile, text string }{
 	{config.Strict, "Lockdown: stop every risky step"},
 }
 
-// askSetup asks at most three questions. Settings the user already has are
+// askSetup asks at most four questions. Settings the user already has are
 // offered as the defaults, so running init again changes nothing by accident.
 func askSetup(g guide, cur config.Config, detectUser func() string) setupChoice {
 	var c setupChoice
-	fmt.Fprintln(g.w, "provguard setup: 3 short questions. Press Enter to take the default.")
+	fmt.Fprintln(g.w, "provguard setup: 4 short questions. Press Enter to take the default.")
 	fmt.Fprintln(g.w)
 
 	if len(cur.TrustedRepoOwners) > 0 {
@@ -190,6 +193,12 @@ func askSetup(g guide, cur config.Config, detectUser func() string) setupChoice 
 	} else {
 		fmt.Fprintln(g.w, "3. (Only for Protect mode; skipped.)")
 	}
+	fmt.Fprintln(g.w)
+
+	fmt.Fprintln(g.w, "4. Check the packages your agent installs?")
+	fmt.Fprintln(g.w, "   provguard asks npm, PyPI or crates.io about each package name. Made-up names are")
+	fmt.Fprintln(g.w, "   blocked. New and lookalike packages need your approval. The names leave your computer.")
+	c.packageCheck = g.confirm("   Check packages", cur.PackageCheck)
 	return c
 }
 

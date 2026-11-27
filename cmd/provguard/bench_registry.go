@@ -15,7 +15,7 @@ import (
 var benchPackages = map[string]int{ // name → age in days
 	"left-pad": 4000, "react": 4500, "express": 5000, "typescript": 4300, "vitest": 1500,
 	"requests": 5000, "pytest": 5000, "ruff": 1300, "serde": 4000, "ripgrep": 3600,
-	"fresh-json-helper": 2,
+	"fresh-json-helper": 2, "lodash": 4500, "lodahs": 400,
 }
 
 // startBenchRegistry serves benchPackages for npm, PyPI and crates.io and
@@ -30,10 +30,20 @@ func startBenchRegistry() func() {
 			name = strings.TrimSuffix(strings.TrimPrefix(p, "/pypi/"), "/json")
 		case strings.HasPrefix(p, "/api/v1/crates/"):
 			name = strings.TrimPrefix(p, "/api/v1/crates/")
+		case strings.HasPrefix(p, "/downloads/point/last-week/"):
+			name = strings.TrimPrefix(p, "/downloads/point/last-week/")
 		}
 		age, ok := benchPackages[name]
 		if !ok {
 			http.NotFound(w, r)
+			return
+		}
+		if strings.HasPrefix(p, "/downloads/") {
+			n := "5000000"
+			if age < 30 || name == "lodahs" {
+				n = "40"
+			}
+			w.Write([]byte(`{"downloads":` + n + `}`))
 			return
 		}
 		created := now.AddDate(0, 0, -age).Format(time.RFC3339)
@@ -49,7 +59,7 @@ func startBenchRegistry() func() {
 		}
 	}))
 	old := registryBase
-	registryBase = map[registry.Eco]string{registry.NPM: srv.URL, registry.PyPI: srv.URL, registry.Crates: srv.URL}
+	registryBase = map[registry.Eco]string{registry.NPM: srv.URL, registry.PyPI: srv.URL, registry.Crates: srv.URL, registry.NPMDownloads: srv.URL}
 	return func() {
 		registryBase = old
 		srv.Close()

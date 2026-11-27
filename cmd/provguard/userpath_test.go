@@ -85,7 +85,7 @@ func TestGuidedInitPathDeclined(t *testing.T) {
 	os.WriteFile(filepath.Join(home, "provguard.exe"), []byte("x"), 0o700)
 	var out bytes.Buffer
 	r := installRun{settings: filepath.Join(t.TempDir(), "s.json"), home: home, exe: filepath.Join(home, "provguard.exe"), copyBinary: true,
-		interactive: true, in: strings.NewReader("\n\n\nn\ny\n"), out: &out, errOut: &out, detectUser: func() string { return "" }}
+		interactive: true, in: strings.NewReader("\n\n\n\nn\ny\n"), out: &out, errOut: &out, detectUser: func() string { return "" }}
 	if code := r.init(); code != 0 {
 		t.Fatalf("code %d: %s", code, out.String())
 	}

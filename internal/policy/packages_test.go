@@ -25,8 +25,12 @@ func fakePackages(asked *[]string) func(registry.Pkg, bool) (registry.Info, bool
 			return registry.Info{Found: true, Checked: pkgNow}, true // date unknown
 		case "fresh-pkg":
 			return registry.Info{Found: true, Created: pkgNow.AddDate(0, 0, -3), InstallScripts: true, Checked: pkgNow}, true
-		case "flaky":
+		case "flaky", "reqeusts":
 			return registry.Info{}, false
+		case "lodahs": // a live typosquat with few users
+			return registry.Info{Found: true, Created: pkgNow.AddDate(-1, 0, 0), WeeklyDownloads: 30, Checked: pkgNow}, true
+		case "axioss": // a real neighbour that many people use
+			return registry.Info{Found: true, Created: pkgNow.AddDate(-4, 0, 0), WeeklyDownloads: 50_000, Checked: pkgNow}, true
 		}
 		return registry.Info{Found: false, Checked: pkgNow}, true
 	}
@@ -53,6 +57,10 @@ func TestDependencyGate(t *testing.T) {
 		{`cargo add serde`, "", None, []string{"crates:serde"}},
 		{`npx fresh-pkg`, "new_package", Ask, []string{"npm:fresh-pkg"}},
 		{`npm install flaky`, "", None, []string{"npm:flaky"}},
+		{`npm install lodahs`, "lookalike_package", Ask, []string{"npm:lodahs"}},
+		{`npm install axioss`, "", None, []string{"npm:axioss"}},
+		{`npm install expres`, "unknown_package", Deny, []string{"npm:expres"}},
+		{`pip install reqeusts`, "lookalike_package", Ask, []string{"pypi:reqeusts"}}, // no answer: the name alone is enough to ask
 		{`npm install`, "", None, nil},
 		{`npm install ./local github:u/r`, "", None, nil},
 		{`go install example.com/x@latest`, "", None, nil},
@@ -72,6 +80,14 @@ func TestDependencyGateMessages(t *testing.T) {
 	r := judgePkg(`npm i fresh-pkg`, nil, bal(), &asked)
 	if !strings.Contains(r.Summary, "fresh-pkg") || !strings.Contains(r.Summary, "3 days") || !strings.Contains(r.Summary, "install scripts") {
 		t.Errorf("new_package summary: %q", r.Summary)
+	}
+	r = judgePkg(`npm i expres`, nil, bal(), &asked)
+	if !strings.Contains(r.Summary, "did you mean express?") {
+		t.Errorf("unknown lookalike summary: %q", r.Summary)
+	}
+	r = judgePkg(`npm i lodahs`, nil, bal(), &asked)
+	if !strings.Contains(r.Summary, "looks like the popular package lodash") {
+		t.Errorf("lookalike summary: %q", r.Summary)
 	}
 	r = judgePkg(`pip install made-up-x`, nil, bal(), &asked)
 	if !strings.Contains(r.Summary, "PyPI has no package named made-up-x") {

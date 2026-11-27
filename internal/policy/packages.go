@@ -40,15 +40,27 @@ func unverifiedPackage(in Input) (Result, bool) {
 			if !ok {
 				continue
 			}
+			like, isLike := registry.Lookalike(eco, p.Name)
 			info, ok := in.PackageInfo(p, kind == "run_remote_package")
+			if ok && !info.Found {
+				hint := ""
+				if isLike {
+					hint = fmt.Sprintf(" (did you mean %s?)", like)
+				}
+				r := result(Deny, "unknown_package", fmt.Sprintf(
+					"%s has no package named %q%s; the name may be made up, and anyone can register it with malicious code", ecoName(eco), p.Name, hint), []shell.Sink{x})
+				r.say = fmt.Sprintf("%s has no package named %s%s, so the agent may have made the name up (an attacker can register such a name)", ecoName(eco), p.Name, hint)
+				return r, true
+			}
+			// A name one typo away from a popular package. A package that is
+			// popular itself (many downloads) is a real neighbour, not a copy.
+			if isLike && ask.Rule == "" && !(ok && WidelyUsed(info)) {
+				ask = result(Ask, "lookalike_package", fmt.Sprintf(
+					"%s %s looks like the popular package %s", ecoName(eco), p.Name, like), []shell.Sink{x})
+				ask.say = fmt.Sprintf("the package %s looks like the popular package %s; typosquats copy popular names with one letter changed", p.Name, like)
+			}
 			if !ok {
 				continue
-			}
-			if !info.Found {
-				r := result(Deny, "unknown_package", fmt.Sprintf(
-					"%s has no package named %q; the name may be made up, and anyone can register it with malicious code", ecoName(eco), p.Name), []shell.Sink{x})
-				r.say = fmt.Sprintf("%s has no package named %s, so the agent may have made the name up (an attacker can register such a name)", ecoName(eco), p.Name)
-				return r, true
 			}
 			if age := info.Checked.Sub(info.Created); ask.Rule == "" && !info.Created.IsZero() && age < NewPackageAge {
 				days := int(age.Hours() / 24)
@@ -64,6 +76,12 @@ func unverifiedPackage(in Input) (Result, bool) {
 		}
 	}
 	return ask, ask.Rule != ""
+}
+
+// WidelyUsed: download counts show a package many people use. Unknown
+// counts (PyPI) never count as widely used.
+func WidelyUsed(i registry.Info) bool {
+	return i.WeeklyDownloads >= 10_000 || i.Downloads >= 1_000_000
 }
 
 func ecoName(e registry.Eco) string {

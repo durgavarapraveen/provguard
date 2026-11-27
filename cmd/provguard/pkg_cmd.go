@@ -77,10 +77,20 @@ func checkPackages(c *registry.Client, eco registry.Eco, names []string, stdout,
 			if info.Downloads >= 0 {
 				line += fmt.Sprintf(", %d downloads", info.Downloads)
 			}
+			if info.WeeklyDownloads >= 0 {
+				line += fmt.Sprintf(", %d downloads last week", info.WeeklyDownloads)
+			}
 			if info.InstallScripts {
 				line += ", runs install scripts"
 			}
+			if like, ok := registry.Lookalike(eco, p.Name); ok && !policy.WidelyUsed(info) {
+				line = "LOOKALIKE of " + like + ": " + line
+				worse(1)
+			}
 			fmt.Fprintf(stdout, "%-24s %s\n", p.Name, line)
+		}
+		if like, ok := registry.Lookalike(eco, p.Name); ok && !info.Found && err == nil {
+			fmt.Fprintf(stdout, "%-24s did you mean %s?\n", "", like)
 		}
 	}
 	return code

@@ -31,6 +31,8 @@ func ruleTitle(rule string) string {
 		return "a package name the registry does not know"
 	case rule == "new_package":
 		return "a package first published days ago"
+	case rule == "lookalike_package":
+		return "a package name one typo away from a popular one"
 	case rule == "remote_shell":
 		return "a reverse shell"
 	case rule == "destroy":

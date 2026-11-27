@@ -83,6 +83,8 @@ func fakeRegistry(t *testing.T) (*httptest.Server, *atomic.Int32) {
 			w.Write([]byte(`{"releases":{"2.0":[{"upload_time_iso_8601":"2013-09-24T00:00:00.000000Z"}],"0.2":[{"upload_time_iso_8601":"2011-02-14T00:00:00.000000Z"}],"9.9":[]}}`))
 		case "/api/v1/crates/serde":
 			w.Write([]byte(`{"crate":{"created_at":"2014-12-05T20:20:39.487502+00:00","downloads":500000000}}`))
+		case "/downloads/point/last-week/@scope%2Fnewpkg":
+			w.Write([]byte(`{"downloads":12,"package":"@scope/newpkg"}`))
 		case "/down":
 			w.WriteHeader(http.StatusInternalServerError)
 		default:
@@ -96,7 +98,7 @@ func fakeRegistry(t *testing.T) (*httptest.Server, *atomic.Int32) {
 func client(srv *httptest.Server, dir string, now *time.Time) *Client {
 	return &Client{
 		HTTP: srv.Client(), Dir: dir, Now: func() time.Time { return *now },
-		Base: map[Eco]string{NPM: srv.URL, PyPI: srv.URL, Crates: srv.URL},
+		Base: map[Eco]string{NPM: srv.URL, PyPI: srv.URL, Crates: srv.URL, NPMDownloads: srv.URL},
 	}
 }
 
@@ -107,7 +109,7 @@ func TestLookup(t *testing.T) {
 	ctx := context.Background()
 
 	got, err := c.Lookup(ctx, NPM, "@scope/newpkg")
-	if err != nil || !got.Found || !got.InstallScripts || !got.Created.Equal(time.Date(2026, 11, 20, 10, 0, 0, 0, time.UTC)) || got.Downloads != -1 {
+	if err != nil || !got.Found || !got.InstallScripts || !got.Created.Equal(time.Date(2026, 11, 20, 10, 0, 0, 0, time.UTC)) || got.Downloads != -1 || got.WeeklyDownloads != 12 {
 		t.Errorf("npm: %+v, %v", got, err)
 	}
 	got, err = c.Lookup(ctx, PyPI, "requests")

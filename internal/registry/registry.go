@@ -39,8 +39,11 @@ type Info struct {
 	InstallScripts bool `json:"install_scripts,omitempty"`
 	// Downloads is the all-time download count, or -1 when the registry
 	// does not give it in the same answer (npm, PyPI).
-	Downloads int64     `json:"downloads"`
-	Checked   time.Time `json:"checked"`
+	Downloads int64 `json:"downloads"`
+	// WeeklyDownloads is npm's count for the last week, or -1 when unknown
+	// (other registries, or the downloads API did not answer).
+	WeeklyDownloads int64     `json:"weekly_downloads"`
+	Checked         time.Time `json:"checked"`
 }
 
 // Default cache lifetimes. A missing name is checked again sooner, so a
@@ -62,10 +65,18 @@ type Client struct {
 	Base map[Eco]string
 }
 
+// npmDownloads keys npm's downloads API in Client.Base. It is not an
+// ecosystem: Lookup refuses it.
+const npmDownloads Eco = "npm-downloads"
+
+// NPMDownloads is the Client.Base key for npm's downloads API (tests).
+const NPMDownloads = npmDownloads
+
 var defaultBase = map[Eco]string{
-	NPM:    "https://registry.npmjs.org",
-	PyPI:   "https://pypi.org",
-	Crates: "https://crates.io",
+	NPM:          "https://registry.npmjs.org",
+	PyPI:         "https://pypi.org",
+	Crates:       "https://crates.io",
+	npmDownloads: "https://api.npmjs.org",
 }
 
 // ErrUnknownEco is returned for an ecosystem this package cannot look up.
@@ -76,7 +87,7 @@ var ErrUnknownEco = errors.New("registry: unknown ecosystem")
 // cache entry is returned with a nil error; with no cache entry, the error
 // is returned and the caller decides (provguard allows and logs).
 func (c *Client) Lookup(ctx context.Context, eco Eco, name string) (Info, error) {
-	if _, ok := defaultBase[eco]; !ok {
+	if _, ok := defaultBase[eco]; !ok || eco == npmDownloads {
 		return Info{}, ErrUnknownEco
 	}
 	now := c.now()
@@ -85,6 +96,9 @@ func (c *Client) Lookup(ctx context.Context, eco Eco, name string) (Info, error)
 		return cached, nil
 	}
 	info, err := c.fetch(ctx, eco, name)
+	if eco != NPM || !info.Found {
+		info.WeeklyDownloads = -1
+	}
 	if err != nil {
 		if haveCache {
 			return cached, nil
@@ -179,7 +193,7 @@ func (c *Client) npm(ctx context.Context, name string) (Info, error) {
 	if err != nil || !found {
 		return Info{Found: found, Downloads: -1}, err
 	}
-	info := Info{Found: true, Downloads: -1}
+	info := Info{Found: true, Downloads: -1, WeeklyDownloads: c.npmWeekly(ctx, name)}
 	if trunc {
 		return info, nil
 	}
@@ -199,6 +213,19 @@ func (c *Client) npm(ctx context.Context, name string) (Info, error) {
 		info.Created = parseTime(full.Time["created"])
 	}
 	return info, nil
+}
+
+// npmWeekly asks npm's downloads API for last week's count; -1 when it
+// does not answer. A missing count never fails the lookup.
+func (c *Client) npmWeekly(ctx context.Context, name string) int64 {
+	var rec struct {
+		Downloads *int64 `json:"downloads"`
+	}
+	found, trunc, err := c.get(ctx, c.base(npmDownloads)+"/downloads/point/last-week/"+url.PathEscape(name), "", &rec)
+	if err != nil || !found || trunc || rec.Downloads == nil {
+		return -1
+	}
+	return *rec.Downloads
 }
 
 // pypi takes the earliest file upload as the first publish time.

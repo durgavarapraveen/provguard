@@ -4,8 +4,10 @@
 
 ### Added
 - **Dependency gate** (opt-in: `provguard config package-check on`). Package names that the agent installs or runs with `npm`, `pnpm`, `yarn`, `bun`, `npx`, `pip`, `uv`, `uvx`, `pipx`, `poetry` or `cargo` are looked up on npm, PyPI or crates.io. A name the registry does not know is blocked, because the agent may have made it up (slopsquatting). A package first published under 30 days ago needs your approval (strict: blocked). This works in clean sessions too. Answers are cached for 24 hours. A registry that does not answer within 3 seconds lets the call run. Calls that use a private registry or mirror, and `npx` of a binary already in `node_modules`, are skipped.
-- `provguard pkg npm|pypi|cargo <name>...`: the same check by hand, with the first publish date, install scripts and (crates.io) downloads.
-- Benchmark cases 18–20 (made-up npm package, two-day-old PyPI package, made-up `npx` tool) and normal-work task b32, which installs known packages.
+- The dependency gate also asks about a lookalike name: one typo away from a popular package (`lodahs` for `lodash`, `reqeusts` for `requests`), checked against a list built into provguard. A lookalike with many downloads (npm: 10,000 a week; crates.io: 1,000,000 in total) is a real package and is allowed. A made-up name that looks like a popular one gets "did you mean …?" in the message.
+- `provguard init` asks a fourth question: turn the package check on (default: no).
+- `provguard pkg npm|pypi|cargo <name>...`: the same check by hand, with the first publish date, install scripts, downloads (npm: last week; crates.io: total) and lookalike names.
+- Benchmark cases 18–21 (made-up npm package, two-day-old PyPI package, made-up `npx` tool, typosquat of `lodash`) and normal-work task b32, which installs known packages.
 
 ### Changed
 - Install commands name only their packages: option values (`npm --prefix web install x`, `cargo install --root dir x`, `uv add --group dev x`) no longer count as package names, and `npx -p pkg`, `uvx --from pkg` and `pipx run pkg` name the package they run. `cargo add` now counts as a package install.
