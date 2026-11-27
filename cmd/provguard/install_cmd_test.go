@@ -62,13 +62,14 @@ func TestGuidedInitDefaults(t *testing.T) {
 func TestGuidedInitChoicesAndRetry(t *testing.T) {
 	home := t.TempDir()
 	settings := filepath.Join(t.TempDir(), "settings.json")
-	// Bad owner, then two owners; a wrong number, then Lockdown; install.
-	code, out := guided(t, home, settings, "not/valid\nme, @my-org\n9\n3\ny\n")
+	// Bad owner, then two owners; a wrong number, then Lockdown; package
+	// check on; install.
+	code, out := guided(t, home, settings, "not/valid\nme, @my-org\n9\n3\ny\ny\n")
 	if code != 0 {
 		t.Fatalf("code %d: %s", code, out)
 	}
 	c, _ := config.Load(home)
-	if c.ProfileName() != config.Strict || !c.RepoOwnerTrusted("me") || !c.RepoOwnerTrusted("my-org") || c.BlockAsks() {
+	if c.ProfileName() != config.Strict || !c.RepoOwnerTrusted("me") || !c.RepoOwnerTrusted("my-org") || c.BlockAsks() || !c.PackageCheck {
 		t.Errorf("config %+v", c)
 	}
 	if !strings.Contains(out, "not a GitHub name") || !strings.Contains(out, "number from 1 to 3") {
@@ -101,7 +102,7 @@ func TestGuidedInitDeclineChangesNothing(t *testing.T) {
 	home := t.TempDir()
 	settings := filepath.Join(t.TempDir(), "settings.json")
 	// Owner, Watch only, Enter on the agent question (all), then decline.
-	code, out := guided(t, home, settings, "none\n2\n\nn\n")
+	code, out := guided(t, home, settings, "none\n2\n\n\nn\n")
 	if code != 0 || !strings.Contains(out, "Nothing changed") {
 		t.Fatalf("code %d: %s", code, out)
 	}
@@ -126,7 +127,7 @@ func TestGuidedInitWithoutClaudeCode(t *testing.T) {
 		}
 	}
 	// Owner, Watch only, a wrong answer, then OpenCode only; install.
-	code, out := guided(t, home, settings, "none\n2\n0\n"+strconv.Itoa(n)+"\ny\n")
+	code, out := guided(t, home, settings, "none\n2\n\n0\n"+strconv.Itoa(n)+"\ny\n")
 	if code != 0 || !strings.Contains(out, "Please type all") || !strings.Contains(out, "OpenCode is protected") {
 		t.Fatalf("code %d: %s", code, out)
 	}

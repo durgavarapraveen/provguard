@@ -53,6 +53,12 @@ type Session struct {
 	Tainted   bool      `json:"tainted"`
 	Sensitive bool      `json:"sensitive"`
 
+	// Cwd is the working folder at the last prompt; Title is the session
+	// title without provguard's trust icon. They only name the session for
+	// the user (status, explain, sessions); no rule reads them.
+	Cwd   string `json:"cwd,omitempty"`
+	Title string `json:"title,omitempty"`
+
 	TaintSources []Source `json:"taint_sources,omitempty"`
 	// TaintSourcesDropped: TaintSources hit MaxSources and lost older entries.
 	TaintSourcesDropped bool     `json:"taint_sources_dropped,omitempty"`

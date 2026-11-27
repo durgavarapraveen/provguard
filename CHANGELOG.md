@@ -1,5 +1,25 @@
 # Changelog
 
+## Unreleased
+
+### Added
+- `provguard sessions` lists recent sessions with their trust icon, short id, title and folder. `status`, `explain` and `reset` show the session's title and folder too. Before, they showed only the id, and with several sessions open it was not clear which one you saw. A hook now saves the working folder and the title (without the icon) in the session record at each prompt.
+- `latest` now means the newest session in the current folder (or a folder above or below it), else the newest of all. Before, it was the newest of all, often another project's session. A session can also be named by the start of its id (`provguard explain 78d5`).
+- **Dependency gate** (opt-in: `provguard config package-check on`). Package names that the agent installs or runs with `npm`, `pnpm`, `yarn`, `bun`, `npx`, `pip`, `uv`, `uvx`, `pipx`, `poetry` or `cargo` are looked up on npm, PyPI or crates.io. A name the registry does not know is blocked, because the agent may have made it up (slopsquatting). A package first published under 30 days ago needs your approval (strict: blocked). This works in clean sessions too. Answers are cached for 24 hours. A registry that does not answer within 3 seconds lets the call run. Calls that use a private registry or mirror, and `npx` of a binary already in `node_modules`, are skipped.
+- The dependency gate also asks about a lookalike name: one typo away from a popular package (`lodahs` for `lodash`, `reqeusts` for `requests`), checked against a list built into provguard. A lookalike with many downloads (npm: 10,000 a week; crates.io: 1,000,000 in total) is a real package and is allowed. A made-up name that looks like a popular one gets "did you mean …?" in the message.
+- `provguard init` asks a fourth question: turn the package check on (default: no).
+- `provguard pkg npm|pypi|cargo <name>...`: the same check by hand, with the first publish date, install scripts, downloads (npm: last week; crates.io: total) and lookalike names.
+- Benchmark cases 18–21 (made-up npm package, two-day-old PyPI package, made-up `npx` tool, typosquat of `lodash`) and normal-work task b32, which installs known packages.
+- Package manager files: a Scoop bucket in this repository (`scoop bucket add provguard https://github.com/durgavarapraveen/provguard`), a Homebrew formula for the tap, and winget manifests. `scripts/packaging.sh` writes all three from a release's `SHA256SUMS`.
+
+### Changed
+- Install commands name only their packages: option values (`npm --prefix web install x`, `cargo install --root dir x`, `uv add --group dev x`) no longer count as package names, and `npx -p pkg`, `uvx --from pkg` and `pipx run pkg` name the package they run. `cargo add` now counts as a package install.
+
+### Fixed
+- The notice for hidden text showed an empty reason ("hides text from you ()") when the same output also made the session untrusted for another reason, such as `gh` output. It now names the kind of hidden text (for example "a run of zero-width characters"). Found live.
+- A read-only `grep` or `rg` was blocked as "uses provguard's key or session files" when its pattern held `\*` or `\|` (for example `grep "a\|\*\*b" README.md`): the backslashes were read as path separators, and `*` as a glob that can reach the key. A search tool's pattern is now never taken for a file. Its files, and pattern files (`-f`), are still checked. Found live.
+- A shell script that only writes text naming provguard commands to files was blocked from running, for example a Homebrew formula whose caveats say "provguard init". Shell scripts are now parsed, and the body of a heredoc that `cat` or `tee` writes to a file is not scanned. The body is still scanned when it holds `$(…)` or backticks, when it goes to a shell or a pipe, or when the script uses the written file again (it may run it). Found live.
+
 ## v0.5.2 — fewer false alarms, trust states, security hardening
 
 ### Changed

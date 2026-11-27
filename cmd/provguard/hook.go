@@ -71,6 +71,9 @@ func handle(ad core.Adapter, e event.Event, out *hookOutput, rec *audit.Record) 
 			}
 		}()
 	}
+	if e.Kind == event.SessionBeg || e.Kind == event.UserPrompt {
+		noteSession(home, e)
+	}
 
 	switch e.Kind {
 	case event.PreTool:
@@ -102,6 +105,9 @@ func handle(ad core.Adapter, e event.Event, out *hookOutput, rec *audit.Record) 
 			Tool: e.ToolName, Sinks: sinks, Cmds: cmdsOf(an), Text: text, Session: snap, Key: key, Config: cfg,
 			Cwd: e.Cwd, RemoteTrusted: remoteTrusted(cfg, e.Cwd),
 			GHRepoTrusted: ghRepoTrusted(cfg, e.Cwd, ghRepoView),
+			PackageInfo: packageInfo(cfg, home, e.Cwd, text, func(err error) {
+				rec.Error = "package lookup: " + err.Error() // allowed: the registry did not answer
+			}),
 		}
 		if key != nil && e.Cwd != "" {
 			in.OutgoingDiff = gitOutgoingDiff(e.Cwd)
@@ -521,7 +527,7 @@ func applyLabels(home string, cfg config.Config, e event.Event, rec *audit.Recor
 		}
 		now := time.Now().UTC()
 		if res.Hidden != "" {
-			s.MarkHidden(store.Source{At: now, Tool: e.ToolName, Reason: res.UntrustedReason})
+			s.MarkHidden(store.Source{At: now, Tool: e.ToolName, Reason: "hidden_text:" + res.Hidden}) // the kind, not the first untrusted reason: the notice names it
 		}
 		if res.Untrusted {
 			s.MarkTainted(store.Source{At: now, Tool: e.ToolName, Reason: res.UntrustedReason})

@@ -690,7 +690,11 @@ func checkShell(an *shell.Analysis, raw, home, cwd string) Verdict {
 		if listOnly[c.Name] {
 			continue // listing names (ls ~/.provguard/sessions) reveals no contents
 		}
-		for _, a := range c.Args[min(1, len(c.Args)):] {
+		pattern := searchPattern(c)
+		for i, a := range c.Args[min(1, len(c.Args)):] {
+			if i+1 == pattern {
+				continue // grep's pattern is text, not a file: "a\|b\*" is no path
+			}
 			// Paths hide inside option values: curl -F f=@path, --data=@path, a,b
 			for _, part := range strings.FieldsFunc(a, func(r rune) bool { return r == '=' || r == '@' || r == ',' }) {
 				deep := deepLeft > 0 && looksLikePath(part)
@@ -743,6 +747,67 @@ func checkShell(an *shell.Analysis, raw, home, cwd string) Verdict {
 		}
 	}
 	return Verdict{}
+}
+
+// searchValueOpts: per search tool, the options whose value is the next
+// word. -e and -f are not here: with them there is no pattern operand.
+// Only options known to take a value are listed. A wrong entry would make
+// the next operand, which can be a file, count as the pattern; a missing
+// one only makes the pattern count as a file (a false alarm).
+var searchValueOpts = func() map[string]map[string]bool {
+	grep := set("-A", "-B", "-C", "-m", "-d", "-D", "--context", "--after-context", "--before-context",
+		"--max-count", "--label", "--binary-files", "--devices", "--directories", "--include", "--exclude", "--exclude-dir")
+	rg := set("-A", "-B", "-C", "-m", "-d", "-g", "-t", "-T", "-M", "-j", "-E", "-r", "--glob", "--iglob", "--type",
+		"--type-not", "--max-columns", "--threads", "--encoding", "--replace", "--max-depth", "--colors",
+		"--context", "--after-context", "--before-context", "--max-count")
+	return map[string]map[string]bool{"grep": grep, "egrep": grep, "fgrep": grep, "rg": rg}
+}()
+
+func set(xs ...string) map[string]bool {
+	m := map[string]bool{}
+	for _, x := range xs {
+		m[x] = true
+	}
+	return m
+}
+
+// searchPattern returns the index in c.Args of a search tool's pattern
+// operand, or -1. A pattern is only text, so it is never a file to protect.
+// With -e or -f (the pattern comes from an option), or for other commands,
+// there is none. Only the one word is skipped: a misread option value
+// leaves the real pattern checked, which can only cost a false alarm.
+func searchPattern(c shell.Cmd) int {
+	opts, ok := searchValueOpts[c.Name]
+	if !ok {
+		return -1
+	}
+	for _, x := range c.Args[1:] {
+		if x == "--" {
+			break
+		}
+		switch {
+		case x == "-e" || x == "-f" || x == "--regexp" || x == "--file",
+			strings.HasPrefix(x, "--regexp=") || strings.HasPrefix(x, "--file="),
+			len(x) > 1 && x[0] == '-' && x[1] != '-' && strings.ContainsAny(x[1:], "ef"):
+			return -1
+		}
+	}
+	for i := 1; i < len(c.Args); i++ {
+		x := c.Args[i]
+		switch {
+		case x == "--":
+			if i+1 < len(c.Args) {
+				return i + 1
+			}
+			return -1
+		case opts[x]:
+			i++
+		case strings.HasPrefix(x, "-") && x != "-":
+		default:
+			return i
+		}
+	}
+	return -1
 }
 
 // argFeeders run a command with arguments that come from input at run time.
@@ -853,14 +918,53 @@ func containsArg(args []string, sub string) bool {
 // neither filler before the reference nor a window boundary through it hides
 // it. One Read can return less than a full window, so the windows are filled
 // with ReadFull.
+// isShellScript: the file ends in .sh or .bash, or starts with a sh or bash
+// shebang line.
+func isShellScript(p string) bool {
+	switch strings.ToLower(filepath.Ext(p)) {
+	case ".sh", ".bash":
+		return true
+	case "":
+	default:
+		return false
+	}
+	f, err := os.Open(p)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	head := make([]byte, 64)
+	n, _ := io.ReadFull(f, head)
+	line, _, _ := strings.Cut(string(head[:n]), "\n")
+	return strings.HasPrefix(line, "#!") && (strings.HasSuffix(strings.TrimSpace(line), "/sh") || strings.HasSuffix(strings.TrimSpace(line), "/bash") ||
+		strings.HasSuffix(strings.TrimSpace(line), " sh") || strings.HasSuffix(strings.TrimSpace(line), " bash"))
+}
+
 func refersToProtected(p string, budget *int64) bool {
 	f, err := os.Open(p)
 	if err != nil {
 		return false
 	}
 	defer f.Close()
-	if fi, err := f.Stat(); err != nil || fi.IsDir() {
+	fi, err := f.Stat()
+	if err != nil || fi.IsDir() {
 		return false
+	}
+	// A shell script that fits one window is parsed, so text it only
+	// writes to a file (cat > formula.rb <<EOF … provguard init … EOF) is
+	// not taken for a command it runs. A script that does not parse is
+	// scanned as text.
+	if fi.Size() <= scriptWindow && fi.Size() <= *budget && isShellScript(p) {
+		if src, err := io.ReadAll(io.LimitReader(f, scriptWindow+1)); err == nil && len(src) <= scriptWindow {
+			*budget -= int64(len(src))
+			if code, ok := shell.WithoutDataHeredocs(src); ok {
+				return protectedText.Match(code)
+			}
+			return protectedText.Match(src)
+		}
+		if _, err := f.Seek(0, io.SeekStart); err != nil {
+			return true // cannot read it again: refuse to run it
+		}
 	}
 	buf := make([]byte, scriptOverlap+scriptWindow)
 	keep := 0

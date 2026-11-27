@@ -73,6 +73,14 @@ $env:PROVGUARD_DIST = 'dist'; powershell -File scripts\e2e.ps1 -Version 0.0.0-de
 
 Maintainers release by pushing a tag `vX.Y.Z` after the CHANGELOG has a section for it. The release workflow builds the binaries, signs their build provenance, and publishes the GitHub release.
 
+After the release is published, update the package managers:
+
+1. Download the release's `SHA256SUMS`.
+2. Run `scripts/packaging.sh X.Y.Z path/to/SHA256SUMS`. It writes `bucket/provguard.json` (Scoop), `packaging/homebrew/provguard.rb` and `packaging/winget/X.Y.Z/`.
+3. Commit the files to `main`. Scoop users get the update from the `bucket` folder.
+4. Copy `packaging/homebrew/provguard.rb` to `Formula/provguard.rb` in the tap repository `durgavarapraveen/homebrew-provguard`.
+5. Send `packaging/winget/X.Y.Z/` to [microsoft/winget-pkgs](https://github.com/microsoft/winget-pkgs) as `manifests/d/DurgavaraPraveen/Provguard/X.Y.Z/` (for example with `wingetcreate submit`).
+
 ## Code of conduct
 
 Everyone who takes part follows the [code of conduct](CODE_OF_CONDUCT.md).
