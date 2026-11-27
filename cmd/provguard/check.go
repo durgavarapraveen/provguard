@@ -28,6 +28,8 @@ type checkResult struct {
 	Summary  string   `json:"summary,omitempty"` // one plain sentence
 	Reason   string   `json:"reason,omitempty"`  // technical: rule, labels and sinks
 	Sinks    []string `json:"sinks,omitempty"`
+	// Notes: checks that could not run, e.g. a package lookup that failed.
+	Notes []string `json:"notes,omitempty"`
 }
 
 // runCheck judges one shell command the way the PreToolUse hook would, and
@@ -149,6 +151,11 @@ func judge(e event.Event, home string, cfg config.Config, sess *store.Session) c
 	res := policy.Evaluate(policy.Input{
 		Tool: e.ToolName, Sinks: sinks, Cmds: cmdsOf(an), Text: text, Session: sess, Key: key, Config: cfg,
 		Cwd: e.Cwd, RemoteTrusted: remoteTrusted(cfg, e.Cwd),
+		// The same package check as the hook (only the registry cache is
+		// written). A failed lookup lets the call run there, so it is a note.
+		PackageInfo: packageInfo(cfg, home, e.Cwd, text, func(err error) {
+			r.Notes = append(r.Notes, "package lookup failed, so the package check did not run: "+err.Error())
+		}),
 	})
 	if res.Decision != policy.None {
 		r.Decision = res.Decision
@@ -172,5 +179,8 @@ func printCheck(w io.Writer, r checkResult) {
 	}
 	if len(r.Sinks) > 0 {
 		fmt.Fprintf(w, "  Reaches: %s\n", strings.Join(r.Sinks, ", "))
+	}
+	for _, n := range r.Notes {
+		fmt.Fprintf(w, "  Note:    %s\n", n)
 	}
 }

@@ -113,6 +113,16 @@ func AnalyzeUnknown(cmd string) *Analysis {
 		}
 		m.Sinks = keep
 	}
+	// Both readings often find the same sink (npm install x); list it once.
+	seen := map[Sink]bool{}
+	uniq := m.Sinks[:0:0]
+	for _, s := range m.Sinks {
+		if !seen[s] {
+			seen[s] = true
+			uniq = append(uniq, s)
+		}
+	}
+	m.Sinks = uniq
 	return m
 }
 
