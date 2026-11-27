@@ -8,7 +8,7 @@
 **A runtime firewall for AI coding agents.** An agent that reads untrusted content (a web page, a GitHub issue, a cloned repo) and also holds your secrets can be turned against you by one hidden instruction. provguard tracks where the agent's context came from and stops the tool calls that untrusted content drives: sending secrets out, lasting changes, remote code, destructive commands, and turning provguard off.
 
 - **10 agents, one install:** Claude Code, Cursor, GitHub Copilot, OpenAI Codex, Gemini CLI, Devin, Kiro, Factory Droid, OpenCode and Antigravity. provguard uses each agent's own hooks; the agent needs no change.
-- **Local and private:** one Go binary on Windows, macOS and Linux. Nothing leaves your computer, and secrets are kept only as HMAC fingerprints.
+- **Local and private:** one Go binary on Windows, macOS and Linux. Nothing leaves your computer, and secrets are kept only as HMAC fingerprints. (The one exception is opt-in: with `package-check on`, the names of packages the agent installs are looked up on npm, PyPI or crates.io.)
 - **Measured:** in Protect mode it blocks 13 of the 17 benchmark attacks and asks you about the other 4, with 0 false positives in 86 normal calls. See [Benchmark](#benchmark).
 
 <p align="center"><img src="docs/demo.svg" width="860" alt="provguard blocks an agent that read .env and a poisoned GitHub issue from sending .env to an attacker, and blocks an attempt to turn provguard off, while normal work runs"></p>
@@ -93,6 +93,8 @@ Details: provguard explain latest.
 | Never block sending to your own server | `provguard config allow-host api.mycorp.com` |
 | Be asked instead of blocked | `provguard config on-block ask` |
 | Trust repos of your team | `provguard config trust-owner my-org` |
+| Stop made-up and brand-new packages | `provguard config package-check on` |
+| Check a package before you install it | `provguard pkg npm left-pad` |
 | See what was stopped this week | `provguard review` |
 | Try it safely first | `provguard demo` |
 | See what provguard would do with a command | `provguard check "terraform destroy"` |
@@ -133,6 +135,7 @@ Regex guards check one command at a time and remember nothing about what the age
 | 2 | Data can leave while the session is both untrusted and sensitive (the "lethal trifecta") | deny |
 | 2b | Your rules, the repo's rules, and the rule packs you turned on | ask or deny, as the rule says |
 | 3 | Data goes to a host or URL taken from untrusted content | ask |
+| 3b | With `package-check on`: an installed or `npx`-run package that the registry does not know (a name the agent may have made up), or one first published under 30 days ago. Skipped when a private registry is set up. | deny (unknown) / ask (new) |
 | 4 | Lasting change, remote code or unreadable code after untrusted input | ask |
 | 5 | Reverse shell, or risky deletion: outside the project, history rewrites on shared branches, remote deletes, `terraform destroy`, cluster-wide `kubectl delete`, `helm uninstall`, cloud deletes (`aws … delete-*`, `gcloud … delete`), container volumes, `DROP TABLE` / `TRUNCATE` / `DELETE` without `WHERE`, `FLUSHALL`, writing a disk with `dd` | ask |
 | 6 | Anything else | no decision (normal Claude Code permissions) |
@@ -172,13 +175,13 @@ Where the notice is not shown, run `provguard explain latest` to see a session's
 
 ## Benchmark
 
-17 attack cases modeled on public incidents and on bypasses of provguard itself, and 31 normal coding tasks, replayed through the real hook:
+20 attack cases modeled on public incidents and on bypasses of provguard itself, and 32 normal coding tasks, replayed through the real hook:
 
 | Mode | Attacks blocked | Asks you | Missed | False positives in normal work |
 |---|---|---|---|---|
-| audit | 4 | 0 | 13 | 0 / 86 calls |
-| balanced | 13 | 4 | **0** | **0 / 86** |
-| strict | **17** | 0 | 0 | 0 / 86 (1 intended deny) |
+| audit | 4 | 0 | 16 | 0 / 94 calls |
+| balanced | 15 | 5 | **0** | **0 / 94** |
+| strict | **20** | 0 | 0 | 0 / 94 (1 intended deny) |
 
 ```bash
 provguard bench --check
@@ -213,13 +216,14 @@ Run `provguard help` for the full list.
 | Command | What it does |
 |---|---|
 | `provguard init [--yes]` | Guided setup; `--yes` installs without questions. Without a terminal it only shows the change. |
-| `provguard config [setting value]` | Show settings, or change one: `mode`, `on-block`, `trust-owner`, `allow-host`, `trust-site`, `trust-mcp` (lists take `--remove`) |
+| `provguard config [setting value]` | Show settings, or change one: `mode`, `on-block`, `package-check`, `trust-owner`, `allow-host`, `trust-site`, `trust-mcp` (lists take `--remove`) |
 | `provguard status` | A session's trust state |
 | `provguard review [--days N]` | What was stopped (or would have been), grouped, with the next step |
 | `provguard allow <token>` | Let one blocked call through once |
 | `provguard explain [session\|latest]` | Why a session is untrusted or sensitive, and every policy hit |
 | `provguard reset [session|latest] [--source N] --yes` | Clear a session's untrusted label after you checked it. Without `--yes` it lists the untrusted sources, numbered; `--source N` clears only that one, and the label goes with the last source. |\|latest] --yes` | Clear a session's untrusted label after you checked it |
 | `provguard check [--untrusted] [--secrets] "<command>"` | What provguard would do with a shell command, and why, without running it. Exit code 0 when allowed, 1 when it would ask or block. `--json` for scripts. |
+| `provguard pkg npm\|pypi\|cargo <name>...` | Ask the registry whether each package exists, when it was first published, and whether it runs install scripts. Works with `package-check` off. Exit code 0 when all are fine, 1 when a name is unknown or new. |
 | `provguard doctor --live` | Send a test write to a protected file through each installed agent's hook and check that provguard blocks it in that agent's reply format |
 | `provguard doctor [dir] [--json]` | Check hook integrity; scan a repo for settings that turn hooks off, repo hooks, `.mcp.json` servers and risky instruction files. Exits 1 on HIGH. |
 | `provguard demo` | One normal task and two attacks, narrated, in a temp folder |
@@ -245,6 +249,7 @@ Run `provguard help` for the full list.
 |---|---|---|
 | `profile` | `mode` | `audit`, `balanced` or `strict` |
 | `block_mode` | `on-block` | `deny` (default) or `ask` |
+| `package_check` | `package-check` | `true` looks up installed package names on npm, PyPI and crates.io (rule 3b). Default `false`. Answers are cached for 24 hours in `~/.provguard/registry`; a lookup that fails or takes over 3 seconds lets the call run. |
 | `trusted_repo_owners` | `trust-owner` | Files in repos owned by these GitHub users or orgs are trusted |
 | `allowed_hosts` | `allow-host` | **Sending**: data sent to these hosts (and subdomains) does not count as leaving. List hosts you control. |
 | `trusted_content_hosts` | `trust-site` | **Receiving**: pages from these hosts do not make a session untrusted. Not for hosts where anyone can publish (`github.com`, paste sites); `provguard doctor` reports those. |
@@ -325,6 +330,7 @@ provguard is one layer, not a sandbox. Read [docs/THREAT_MODEL.md](docs/THREAT_M
 - It cannot know values that exist only at run time, and the PowerShell analysis is a heuristic.
 - Instruction files that the agent loads by itself are invisible to hooks. At session start provguard checks the ones in the repo root and working folder for hidden text and strong signs of an attack; files that load later, and subtler injections, are not caught. `trusted_repo_owners` and `doctor` add to this.
 - A cloned repo can turn all hooks off through its settings file before any hook runs ([finding F3](docs/FINDINGS.md)). provguard warns when an agent clones such a repo; run `provguard doctor` on a repo you cloned yourself, or use managed settings in teams.
+- The package check reads names from the command line only. It does not check packages named in `package.json` or `requirements.txt`, the dependencies of a package, lookalike names of real packages, or `go` and `gem` installs. It skips a call when a private registry or mirror is set up (in the command, the environment, `.npmrc`, `pip.conf`, `pyproject.toml` or `.cargo/config.toml`).
 - In Cursor, provguard runs only while *Third-Party Imports* is on. Cursor keeps that switch in its own settings, which provguard does not guard.
 - The install scripts check the binary against the release's own `SHA256SUMS`, which catches a broken download, not a compromised release. For releases after v0.5.1 they also check the signed build provenance (`gh attestation verify`) when the GitHub CLI is installed and signed in, and refuse to install a binary that fails it. Without `gh` they say the check was skipped.
 

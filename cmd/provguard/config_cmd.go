@@ -15,6 +15,7 @@ const configUsage = `usage:
   provguard config                              show the settings
   provguard config mode audit|balanced|strict   how much provguard stops
   provguard config on-block deny|ask            balanced: block a leak, or ask you
+  provguard config package-check on|off         look up installed package names on npm, PyPI, crates.io
   provguard config trust-owner NAME [--remove]  repos owned by NAME count as yours
   provguard config allow-host HOST [--remove]   never block data sent to HOST
   provguard config trust-site HOST [--remove]   pages from HOST do not make a session untrusted
@@ -113,6 +114,20 @@ func changeConfig(home string, args []string) (string, error) {
 				msg += " (This applies in balanced mode; the mode is " + c.ProfileName() + ".)"
 			}
 			return nil
+		case "package-check":
+			switch {
+			case remove:
+				return errUsage
+			case value == "on":
+				c.PackageCheck = true
+				msg = "Package check is on. Names the agent installs are looked up on npm, PyPI or crates.io. Made-up names are blocked. Packages under 30 days old need your approval."
+			case value == "off":
+				c.PackageCheck = false
+				msg = "Package check is off. Package names are not looked up."
+			default:
+				return errUsage
+			}
+			return nil
 		}
 		ls, ok := listSettings[key]
 		if !ok {
@@ -156,13 +171,14 @@ func showConfig(home string, w, stderr io.Writer) int {
 	rows := [][2]string{
 		{"mode", p + "  (" + config.Describe(p) + ")"},
 		{"on-block", onBlock + "  (balanced mode only)"},
+		{"package-check", map[bool]string{true: "on  (package names are looked up on their registry)", false: "off  (package names are not looked up)"}[c.PackageCheck]},
 		{"trust-owner", list(c.TrustedRepoOwners, "none: every repo you did not write counts as untrusted")},
 		{"allow-host", list(c.AllowedHosts, "none: sending data out is checked for every host")},
 		{"trust-site", list(c.TrustedContentHosts, "none: every web page counts as untrusted")},
 		{"trust-mcp", list(c.TrustedMCPServers, "none")},
 	}
 	for _, r := range rows {
-		fmt.Fprintf(w, "%-12s %s\n", r[0], r[1])
+		fmt.Fprintf(w, "%-14s %s\n", r[0], r[1])
 	}
 	fmt.Fprintf(w, "\nFile: %s\nChange a setting: provguard config <setting> <value>\n", config.Path(home))
 	if _, err := os.Stat(config.Path(home)); errors.Is(err, os.ErrNotExist) {

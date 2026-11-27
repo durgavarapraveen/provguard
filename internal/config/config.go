@@ -73,6 +73,11 @@ type Config struct {
 	// LocalhostIsExternal treats localhost as a third party. Only the live
 	// benchmark needs it, because its fake attacker runs on 127.0.0.1.
 	LocalhostIsExternal bool `json:"localhost_is_external,omitempty"`
+
+	// PackageCheck turns the dependency gate on: package names that an
+	// agent installs are looked up on npm, PyPI or crates.io. Off by
+	// default, because the names leave the computer.
+	PackageCheck bool `json:"package_check,omitempty"`
 }
 
 func (c Config) SelfProtectOn() bool { return c.SelfProtect == nil || *c.SelfProtect }

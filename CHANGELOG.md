@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Added
+- **Dependency gate** (opt-in: `provguard config package-check on`). Package names that the agent installs or runs with `npm`, `pnpm`, `yarn`, `bun`, `npx`, `pip`, `uv`, `uvx`, `pipx`, `poetry` or `cargo` are looked up on npm, PyPI or crates.io. A name the registry does not know is blocked, because the agent may have made it up (slopsquatting). A package first published under 30 days ago needs your approval (strict: blocked). This works in clean sessions too. Answers are cached for 24 hours. A registry that does not answer within 3 seconds lets the call run. Calls that use a private registry or mirror, and `npx` of a binary already in `node_modules`, are skipped.
+- `provguard pkg npm|pypi|cargo <name>...`: the same check by hand, with the first publish date, install scripts and (crates.io) downloads.
+- Benchmark cases 18–20 (made-up npm package, two-day-old PyPI package, made-up `npx` tool) and normal-work task b32, which installs known packages.
+
+### Changed
+- Install commands name only their packages: option values (`npm --prefix web install x`, `cargo install --root dir x`, `uv add --group dev x`) no longer count as package names, and `npx -p pkg`, `uvx --from pkg` and `pipx run pkg` name the package they run. `cargo add` now counts as a package install.
+
 ### Fixed
 - The notice for hidden text showed an empty reason ("hides text from you ()") when the same output also made the session untrusted for another reason, such as `gh` output. It now names the kind of hidden text (for example "a run of zero-width characters"). Found live.
 

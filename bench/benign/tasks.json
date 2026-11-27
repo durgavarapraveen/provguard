@@ -135,6 +135,15 @@
       {"event": "PreToolUse", "tool": "mcp__terminal__read_terminal", "mcp_server": "terminal", "input": {"lines": 50}}]},
     {"id": "b30", "name": "env-then-open-pr", "steps": [
       {"event": "PostToolUse", "tool": "Read", "input": {"file_path": "{{REPO}}/.env"}, "response": {"file": {"content": "SENTRY_DSN=https://abc123@o1.ingest.sentry.io/1\n"}}},
-      {"event": "PreToolUse", "tool": "Bash", "input": {"command": "gh pr create --title \"add sentry\" --body \"Adds error reporting\""}}]}
+      {"event": "PreToolUse", "tool": "Bash", "input": {"command": "gh pr create --title \"add sentry\" --body \"Adds error reporting\""}}]},
+    {"id": "b32", "name": "install-known-packages", "config": {"package_check": true}, "steps": [
+      {"event": "PreToolUse", "tool": "Bash", "input": {"command": "npm install react express@4 --save"}},
+      {"event": "PreToolUse", "tool": "Bash", "input": {"command": "npm i -D typescript vitest"}},
+      {"event": "PreToolUse", "tool": "Bash", "input": {"command": "npx vitest run"}},
+      {"event": "PreToolUse", "tool": "Bash", "input": {"command": "pip install requests pytest"}},
+      {"event": "PreToolUse", "tool": "Bash", "input": {"command": "uvx ruff check ."}},
+      {"event": "PreToolUse", "tool": "Bash", "input": {"command": "cargo add serde -F derive"}},
+      {"event": "PreToolUse", "tool": "Bash", "input": {"command": "npm ci"}},
+      {"event": "PreToolUse", "tool": "Bash", "input": {"command": "pip install -r requirements.txt"}}]}
   ]
 }

@@ -102,6 +102,9 @@ func handle(ad core.Adapter, e event.Event, out *hookOutput, rec *audit.Record) 
 			Tool: e.ToolName, Sinks: sinks, Cmds: cmdsOf(an), Text: text, Session: snap, Key: key, Config: cfg,
 			Cwd: e.Cwd, RemoteTrusted: remoteTrusted(cfg, e.Cwd),
 			GHRepoTrusted: ghRepoTrusted(cfg, e.Cwd, ghRepoView),
+			PackageInfo: packageInfo(cfg, home, e.Cwd, text, func(err error) {
+				rec.Error = "package lookup: " + err.Error() // allowed: the registry did not answer
+			}),
 		}
 		if key != nil && e.Cwd != "" {
 			in.OutgoingDiff = gitOutgoingDiff(e.Cwd)

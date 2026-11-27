@@ -9,7 +9,9 @@
 //  5. reverse shell, or risky DESTROY                         → ask
 //  6. anything else                                           → allow (no decision)
 //
-// Also: egress to a blocked host is denied (after rule 1); the user's,
+// Also: between rules 3 and 4, the dependency gate (packages.go) denies a
+// package the registry does not know and asks about a new one; egress to a
+// blocked host is denied (after rule 1); the user's,
 // a repository's and the packs' rules apply after rule 2; and in a session
 // whose content hid text from the user, rules 3 and 4 deny instead of ask.
 //
@@ -28,6 +30,7 @@ import (
 
 	"github.com/durgavarapraveen/provguard/internal/config"
 	"github.com/durgavarapraveen/provguard/internal/fingerprint"
+	"github.com/durgavarapraveen/provguard/internal/registry"
 	"github.com/durgavarapraveen/provguard/internal/shell"
 	"github.com/durgavarapraveen/provguard/internal/store"
 )
@@ -61,6 +64,10 @@ type Input struct {
 	// OutgoingDiff returns the commits a git push would send (patch text).
 	// Used only when the session holds secrets. nil means "unknown".
 	OutgoingDiff func() string
+	// PackageInfo looks up a package that a call installs or runs (remote:
+	// npx-style runners). ok is false when the lookup failed or was skipped
+	// (private registry, a local binary). nil turns the dependency gate off.
+	PackageInfo func(p registry.Pkg, remote bool) (info registry.Info, ok bool)
 }
 
 // Result is the judgment.
@@ -198,6 +205,11 @@ func evaluate(in Input) Result {
 			r.dest = v
 			return r
 		}
+	}
+
+	// 3b. Dependency gate: a package the registry does not know, or a new one.
+	if r, ok := unverifiedPackage(in); ok {
+		return r
 	}
 
 	// 4. Lasting change, remote code or unreadable code after untrusted input.

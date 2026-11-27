@@ -27,6 +27,10 @@ func ruleTitle(rule string) string {
 		return "data sent to an address from untrusted content"
 	case strings.HasPrefix(rule, "tainted_"):
 		return "a risky step after untrusted content"
+	case rule == "unknown_package":
+		return "a package name the registry does not know"
+	case rule == "new_package":
+		return "a package first published days ago"
 	case rule == "remote_shell":
 		return "a reverse shell"
 	case rule == "destroy":

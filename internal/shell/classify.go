@@ -552,21 +552,27 @@ func classify(a *Analysis, name string, args []string) {
 	case name == "gh":
 		ghCmd(a, args)
 	case name == "npm" || name == "pnpm" || name == "yarn" || name == "bun":
-		if len(pos) > 0 {
-			switch pos[0] {
+		// Skip option values (npm --prefix dir install x), so a folder or
+		// tag is never taken for the subcommand or a package name.
+		if pp := positionalSkipping(args, npmValueOpts(name)); len(pp) > 0 {
+			switch pp[0] {
 			case "publish":
 				a.sink(Egress, name+"_publish", "")
 			case "install", "i", "add", "ci", "update", "upgrade":
-				a.sink(ExecRemote, "package_install:"+name, strings.Join(pos[1:], " "))
+				a.sink(ExecRemote, "package_install:"+name, strings.Join(pp[1:], " "))
 			case "dlx", "exec", "x":
-				a.sink(ExecRemote, "run_remote_package:"+name, strings.Join(pos[1:], " "))
+				a.sink(ExecRemote, "run_remote_package:"+name, remotePackage(name, args, 1))
 			}
 		}
 	case name == "npx" || name == "bunx" || name == "uvx":
-		a.sink(ExecRemote, "run_remote_package:"+name, strings.Join(pos, " "))
+		a.sink(ExecRemote, "run_remote_package:"+name, remotePackage(name, args, 0))
 	case name == "pip" || name == "pip3" || name == "uv" || name == "pipx" || name == "poetry":
 		for i, p := range pos {
-			if p == "install" || p == "add" || (name == "pipx" && p == "run") {
+			if name == "pipx" && p == "run" {
+				a.sink(ExecRemote, "run_remote_package:pipx", remotePackage("pipx", args, 1))
+				break
+			}
+			if p == "install" || p == "add" {
 				// Only named packages count as targets, not -r requirements.txt or -e .
 				a.sink(ExecRemote, "package_install:"+name, strings.Join(namedPackages(args, pos[i+1:]), " "))
 				break
@@ -584,7 +590,16 @@ func classify(a *Analysis, name string, args []string) {
 		if len(pos) > 0 && pos[0] == "upload" {
 			a.sink(Egress, "twine_upload", "")
 		}
-	case name == "go" || name == "cargo" || name == "gem":
+	case name == "cargo":
+		if pp := positionalSkipping(args, cargoValueOpts); len(pp) > 0 {
+			switch pp[0] {
+			case "install", "add":
+				a.sink(ExecRemote, "package_install:cargo", strings.Join(pp[1:], " "))
+			case "publish":
+				a.sink(Egress, "cargo_publish", "")
+			}
+		}
+	case name == "go" || name == "gem":
 		if len(pos) > 0 {
 			switch pos[0] {
 			case "install", "get":
@@ -778,7 +793,11 @@ func classify(a *Analysis, name string, args []string) {
 
 // pipValueFlags take a file, path or URL, not a package name.
 var pipValueFlags = set("-r", "--requirement", "-c", "--constraint", "-e", "--editable",
-	"-f", "--find-links", "-i", "--index-url", "--extra-index-url", "-t", "--target", "--python")
+	"-f", "--find-links", "-i", "--index-url", "--extra-index-url", "-t", "--target", "--python",
+	"--index", "--default-index", "--prefix", "--root", "--src", "--platform", "--python-version",
+	"--implementation", "--abi", "--only-binary", "--no-binary", "--cache-dir", "--trusted-host",
+	"--upgrade-strategy", "--log", "--proxy", "--retries", "--timeout", "--exists-action", "--cert",
+	"--client-cert", "--group", "--extra", "--optional", "--dev-group", "-p", "--package")
 
 // namedPackages drops values of pipValueFlags and local paths from cands.
 func namedPackages(args, cands []string) []string {

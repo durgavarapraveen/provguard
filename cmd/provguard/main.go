@@ -41,6 +41,8 @@ When something was blocked:
 
 More:
   provguard check "<command>"       what provguard would do with a command (--untrusted, --secrets)
+  provguard pkg npm|pypi|cargo <name>...
+                                    does a package exist, and how new is it (asks the registry)
   provguard doctor [dir] [--json]   check the hooks; scan a repo before you open it
   provguard doctor --live           send a test call through each installed agent's hook
   provguard uninstall [--yes] [--now] [--keep-data]
@@ -92,6 +94,8 @@ func main() {
 		os.Exit(runAllow(os.Args[2:], os.Stdout))
 	case "config":
 		os.Exit(runConfig(os.Args[2:], os.Stdout, os.Stderr))
+	case "pkg":
+		os.Exit(runPkg(os.Args[2:], os.Stdout, os.Stderr))
 	case "bench":
 		os.Exit(runBench(os.Args[2:], os.Stdout))
 	case "check":

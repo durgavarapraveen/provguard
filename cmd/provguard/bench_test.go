@@ -14,8 +14,8 @@ func TestBenchReplayMatchesExpectations(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(cases) != 17 {
-		t.Fatalf("want 17 attack cases, have %d", len(cases))
+	if len(cases) != 20 {
+		t.Fatalf("want 20 attack cases, have %d", len(cases))
 	}
 	for _, c := range cases {
 		if len(c.Expect) != 3 {

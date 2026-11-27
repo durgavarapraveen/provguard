@@ -157,6 +157,7 @@ func replayCase(c bench.Case, profile string) (replayResult, error) {
 		return res, err
 	}
 	defer os.RemoveAll(home)
+	defer startBenchRegistry()() // never the real registries
 	restore := setEnv("PROVGUARD_HOME", home)
 	defer restore()
 	if err := writeConfig(home, profile, c.Config); err != nil {
