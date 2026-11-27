@@ -71,6 +71,9 @@ func handle(ad core.Adapter, e event.Event, out *hookOutput, rec *audit.Record) 
 			}
 		}()
 	}
+	if e.Kind == event.SessionBeg || e.Kind == event.UserPrompt {
+		noteSession(home, e)
+	}
 
 	switch e.Kind {
 	case event.PreTool:

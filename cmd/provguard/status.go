@@ -21,6 +21,8 @@ type trustState struct {
 	Secret    string `json:"sensitive_reason,omitempty"`
 	Profile   string `json:"profile"`
 	Level     string `json:"level"` // clean | untrusted | sensitive | both | not_tracked | unreadable
+	Title     string `json:"title,omitempty"`
+	Cwd       string `json:"cwd,omitempty"`
 }
 
 // runStatus prints a session's trust state. Used as a Claude Code status
@@ -39,6 +41,7 @@ func runStatus(args []string, stdin io.Reader, w io.Writer) int {
 		return 0
 	}
 	id := *sid
+	statusLineMode := false // the agent gave the session: one line only
 	if id == "" && stdinIsPiped() {
 		var in struct {
 			SessionID string `json:"session_id"`
@@ -46,10 +49,20 @@ func runStatus(args []string, stdin io.Reader, w io.Writer) int {
 		b, _ := io.ReadAll(io.LimitReader(stdin, 1<<20))
 		_ = json.Unmarshal(b, &in)
 		id = in.SessionID
+		statusLineMode = id != ""
 	}
-	if id == "" {
-		if id, err = resolveSession(home, "latest"); err != nil {
-			fmt.Fprintln(w, "provguard: no session yet")
+	if !statusLineMode {
+		// "latest" (the current folder's session) or a short id.
+		arg := id
+		if arg == "" {
+			arg = "latest"
+		}
+		if id, err = resolveSession(home, arg); err != nil {
+			if arg == "latest" {
+				fmt.Fprintln(w, "provguard: no session yet")
+				return 0
+			}
+			fmt.Fprintln(w, "provguard:", err)
 			return 0
 		}
 	}
@@ -62,6 +75,7 @@ func runStatus(args []string, stdin io.Reader, w io.Writer) int {
 		st.Level = "unreadable"
 	default:
 		st.Tainted, st.Sensitive = s.Tainted, s.Sensitive
+		st.Title, st.Cwd = s.Title, s.Cwd
 		if len(s.TaintSources) > 0 {
 			st.Taint = s.TaintSources[0].Tool + ": " + s.TaintSources[0].Reason
 		}
@@ -88,6 +102,15 @@ func runStatus(args []string, stdin io.Reader, w io.Writer) int {
 		return 0
 	}
 	fmt.Fprintln(w, statusLine(st, !*plain))
+	if !statusLineMode {
+		// In a terminal, name the session, so several open sessions are
+		// not confused.
+		name := sessionName(&store.Session{Title: st.Title, Cwd: st.Cwd})
+		if name == "" {
+			name = "(no title or folder recorded yet)"
+		}
+		fmt.Fprintf(w, "   session %s %s\n", short(id), name)
+	}
 	return 0
 }
 

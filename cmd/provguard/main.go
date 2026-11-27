@@ -28,7 +28,8 @@ const usage = `provguard - a runtime firewall for AI coding agents
 Start here:
   provguard init                    guided setup (--yes: no questions, --no-path: skip PATH)
   provguard demo                    see it stop two attacks, in a temp folder
-  provguard status                  this session's trust state (also a status line)
+  provguard status                  this folder's latest session: trust state, title, folder (also a status line)
+  provguard sessions [-n N]         recent sessions with their icon, short id, title and folder
   provguard review [--days N]       what it stopped, and what to do next
   provguard config [setting value]  show or change settings
 
@@ -38,6 +39,8 @@ When something was blocked:
                                     why a session is untrusted, and every hit
   provguard reset [session|latest] [--yes]
                                     clear a session's untrusted label
+  (session: a full id or its start, e.g. 78d5; latest: the newest session in
+   this folder, else the newest of all)
 
 More:
   provguard check "<command>"       what provguard would do with a command (--untrusted, --secrets)
@@ -94,6 +97,8 @@ func main() {
 		os.Exit(runAllow(os.Args[2:], os.Stdout))
 	case "config":
 		os.Exit(runConfig(os.Args[2:], os.Stdout, os.Stderr))
+	case "sessions":
+		os.Exit(runSessions(os.Args[2:], os.Stdout))
 	case "pkg":
 		os.Exit(runPkg(os.Args[2:], os.Stdout, os.Stderr))
 	case "bench":

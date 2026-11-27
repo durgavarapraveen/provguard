@@ -164,7 +164,7 @@ Regex guards check one command at a time and remember nothing about what the age
 
 | Where | How |
 |---|---|
-| Any terminal, every agent | `provguard status` shows the latest session's state, `provguard explain latest` shows why, and `provguard review` counts the states of recent sessions |
+| Any terminal, every agent | `provguard status` shows the state of the latest session in the current folder, with its title and folder. `provguard sessions` lists recent sessions with their icon, short id, title and folder. `provguard explain <id>` shows why (the start of the id is enough, e.g. `78d5`), and `provguard review` counts the states of recent sessions |
 | Claude Code session list | The title gets the icon in front, e.g. `🔴 Fix login`, from your next prompt. The app owns its titles, so the icon changes only when you send a message in that session, and it is not added to a session that was renamed (by you, or by a tool). Turn off with `"session_title_icon": false`. |
 | Claude Code CLI status line | Add `"statusLine": { "type": "command", "command": "provguard status" }` to `~/.claude/settings.json` yourself, with `~/.provguard/bin` on your `PATH` (agents may not edit `statusLine`) |
 | A notice in the chat | provguard sends a one-time notice when a state changes, but not every agent shows it: see below |
@@ -226,7 +226,8 @@ Run `provguard help` for the full list.
 |---|---|
 | `provguard init [--yes]` | Guided setup; `--yes` installs without questions. Without a terminal it only shows the change. |
 | `provguard config [setting value]` | Show settings, or change one: `mode`, `on-block`, `package-check`, `trust-owner`, `allow-host`, `trust-site`, `trust-mcp` (lists take `--remove`) |
-| `provguard status` | A session's trust state |
+| `provguard status` | A session's trust state, title and folder. Without `--session`, the latest session in the current folder (else the latest of all). |
+| `provguard sessions [-n N]` | Recent sessions: trust icon, short id, last update, title and folder. Use the short id with `explain`, `reset` and `status --session`. |
 | `provguard review [--days N]` | What was stopped (or would have been), grouped, with the next step |
 | `provguard allow <token>` | Let one blocked call through once |
 | `provguard explain [session\|latest]` | Why a session is untrusted or sensitive, and every policy hit |

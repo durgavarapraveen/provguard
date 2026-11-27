@@ -2,7 +2,6 @@ package main
 
 import (
 	"encoding/json"
-	"errors"
 	"flag"
 	"fmt"
 	"github.com/durgavarapraveen/provguard/internal/redact"
@@ -18,25 +17,6 @@ import (
 	"github.com/durgavarapraveen/provguard/internal/install"
 	"github.com/durgavarapraveen/provguard/internal/store"
 )
-
-// resolveSession turns "latest" (or "") into the most recently updated session id.
-func resolveSession(home, id string) (string, error) {
-	if id != "" && id != "latest" {
-		return id, nil
-	}
-	files, _ := filepath.Glob(filepath.Join(home, "sessions", "*.json"))
-	var best string
-	var bestT time.Time
-	for _, f := range files {
-		if fi, err := os.Stat(f); err == nil && fi.ModTime().After(bestT) {
-			best, bestT = f, fi.ModTime()
-		}
-	}
-	if best == "" {
-		return "", errors.New("no sessions recorded yet")
-	}
-	return strings.TrimSuffix(filepath.Base(best), ".json"), nil
-}
 
 func runExplain(args []string, w io.Writer) int {
 	fs := flag.NewFlagSet("explain", flag.ContinueOnError)
@@ -66,7 +46,14 @@ func runExplain(args []string, w io.Writer) int {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		return 1
 	}
-	fmt.Fprintf(w, "Session   %s\nUpdated   %s\n\n", s.ID, s.Updated.Local().Format(time.DateTime))
+	fmt.Fprintf(w, "Session   %s\n", s.ID)
+	if s.Title != "" {
+		fmt.Fprintf(w, "Title     %s\n", s.Title)
+	}
+	if s.Cwd != "" {
+		fmt.Fprintf(w, "Folder    %s\n", s.Cwd)
+	}
+	fmt.Fprintf(w, "Updated   %s\n\n", s.Updated.Local().Format(time.DateTime))
 	fmt.Fprintf(w, "Untrusted %s\n", yesNo(s.Tainted))
 	for _, src := range s.TaintSources {
 		fmt.Fprintf(w, "  %s  %s: %s\n", src.At.Local().Format(time.TimeOnly), src.Tool, src.Reason)
@@ -143,6 +130,9 @@ func runReset(args []string, w io.Writer) int {
 		return 1
 	}
 	fmt.Fprintf(w, "Session %s: untrusted=%s (%d sources, %d URLs/hosts)\n", id, yesNo(s.Tainted), len(s.TaintSources), len(s.UntrustedValues))
+	if name := sessionName(s); name != "" {
+		fmt.Fprintf(w, "  %s\n", name)
+	}
 	for i, src := range s.TaintSources {
 		fmt.Fprintf(w, "  %d. %s  %s: %s\n", i+1, src.At.Local().Format("2006-01-02 15:04"), src.Tool, src.Reason)
 	}
