@@ -15,6 +15,8 @@
 
 ### Fixed
 - The notice for hidden text showed an empty reason ("hides text from you ()") when the same output also made the session untrusted for another reason, such as `gh` output. It now names the kind of hidden text (for example "a run of zero-width characters"). Found live.
+- A read-only `grep` or `rg` was blocked as "uses provguard's key or session files" when its pattern held `\*` or `\|` (for example `grep "a\|\*\*b" README.md`): the backslashes were read as path separators, and `*` as a glob that can reach the key. A search tool's pattern is now never taken for a file. Its files, and pattern files (`-f`), are still checked. Found live.
+- A shell script that only writes text naming provguard commands to files was blocked from running, for example a Homebrew formula whose caveats say "provguard init". Shell scripts are now parsed, and the body of a heredoc that `cat` or `tee` writes to a file is not scanned. The body is still scanned when it holds `$(…)` or backticks, when it goes to a shell or a pipe, or when the script uses the written file again (it may run it). Found live.
 
 ## v0.5.2 — fewer false alarms, trust states, security hardening
 
