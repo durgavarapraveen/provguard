@@ -8,6 +8,7 @@
 - `provguard init` asks a fourth question: turn the package check on (default: no).
 - `provguard pkg npm|pypi|cargo <name>...`: the same check by hand, with the first publish date, install scripts, downloads (npm: last week; crates.io: total) and lookalike names.
 - Benchmark cases 18–21 (made-up npm package, two-day-old PyPI package, made-up `npx` tool, typosquat of `lodash`) and normal-work task b32, which installs known packages.
+- Package manager files: a Scoop bucket in this repository (`scoop bucket add provguard https://github.com/durgavarapraveen/provguard`), a Homebrew formula for the tap, and winget manifests. `scripts/packaging.sh` writes all three from a release's `SHA256SUMS`.
 
 ### Changed
 - Install commands name only their packages: option values (`npm --prefix web install x`, `cargo install --root dir x`, `uv add --group dev x`) no longer count as package names, and `npx -p pkg`, `uvx --from pkg` and `pipx run pkg` name the package they run. `cargo add` now counts as a package install.

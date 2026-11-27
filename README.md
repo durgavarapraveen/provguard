@@ -30,6 +30,13 @@ Windows PowerShell:
 irm https://raw.githubusercontent.com/durgavarapraveen/provguard/main/scripts/install.ps1 | iex
 ```
 
+Or with Scoop (Windows), then run `provguard init`:
+
+```powershell
+scoop bucket add provguard https://github.com/durgavarapraveen/provguard
+scoop install provguard
+```
+
 The script downloads the release binary, checks its SHA-256, and runs the guided setup:
 
 ```text
